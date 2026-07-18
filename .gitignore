@@ -1,0 +1,26 @@
+﻿# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows/macOS
+Thumbs.db
+.DS_Store
+
+# Runtime outputs
+outputs/
+videos/
+runs/
+checkpoints/
+*.log
+
+# Temporary files
+*.tmp
