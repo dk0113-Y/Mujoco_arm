@@ -1,6 +1,14 @@
 <mujoco model="panda U-table scene additions">
+  <visual>
+    <global offwidth="512" offheight="512"/>
+  </visual>
+
   <worldbody>
     <light name="u_table_scene_light" pos="0.4 -0.4 1.6" dir="0.1 0.1 -1" directional="true"/>
+
+    <!-- Local -Z looks 14.19 degrees from vertical toward the workspace center. -->
+    <camera name="overhead_rgbd" pos="0.70 0 2.0"
+      xyaxes="0.96949834 0 -0.24509789 0 1 0" fovy="60"/>
 
     <geom name="floor" type="plane" size="2 2 0.05" rgba="0.72 0.72 0.72 1"
       friction="1 0.005 0.0001"/>
@@ -28,6 +36,6 @@
     </body>
 
     <site name="place_target" type="cylinder" pos="0.50 -0.20 0.222"
-      size="0.055 0.002" rgba="0.10 0.80 0.20 0.45"/>
+      size="0.055 0.002" rgba="0.10 0.90 0.20 0.85"/>
   </worldbody>
 </mujoco>

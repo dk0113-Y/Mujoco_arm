@@ -13,6 +13,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from controllers import FixedDLSPickPlaceController
 from environments import PandaUTableEnv, load_config
 from evaluation import FailureReason
+from perception import (
+    ColorDepthDetector,
+    OverheadRGBDCamera,
+    PrivilegedStateProvider,
+    RGBDPerceptionProvider,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pick-mode", choices=("fixed", "random"), default=None)
     parser.add_argument("--place-mode", choices=("fixed", "random"), default=None)
     parser.add_argument("--physics-mode", choices=("fixed", "random"), default=None)
+    parser.add_argument(
+        "--observation-source",
+        choices=("privileged", "perception"),
+        default=None,
+    )
     viewer_group = parser.add_mutually_exclusive_group()
     viewer_group.add_argument("--viewer", action="store_true", dest="viewer")
     viewer_group.add_argument("--headless", action="store_false", dest="viewer")
@@ -54,6 +65,13 @@ def print_summary(result: object) -> None:
     print(f"  final XY error: {data['final_xy_error']}")
     print(f"  final height error: {data['final_height_error']}")
     print(f"  collision count: {data['collision_count']}")
+    print(f"  observation source: {data['observation_source']}")
+    if data["observation_source"] == "perception":
+        print(f"  perception success: {data['perception_success']}")
+        print(f"  perception failure: {data['perception_failure_reason']}")
+        print(f"  object estimate error: {data['object_position_error']}")
+        print(f"  target estimate error: {data['target_position_error']}")
+        print(f"  perception latency: {data['perception_latency_ms']} ms")
     if data["exception_message"]:
         print(f"  detail: {data['exception_message']}")
     print("Structured JSON result:")
@@ -71,35 +89,52 @@ def main() -> int:
             place_mode=args.place_mode,
             physics_mode=args.physics_mode,
             viewer=args.viewer,
+            observation_source=args.observation_source,
         )
         env = PandaUTableEnv(config)
         controller = FixedDLSPickPlaceController(config.controller)
-        use_viewer = config.simulation.viewer
-        if use_viewer:
-            import mujoco.viewer
-
-            last_wall_time = time.perf_counter()
-            with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
-
-                def sync_viewer(current_env: PandaUTableEnv) -> bool:
-                    nonlocal last_wall_time
-                    viewer.sync()
-                    target_period = (
-                        current_env.model.opt.timestep
-                        * current_env.config.simulation.frame_skip
-                    )
-                    elapsed = time.perf_counter() - last_wall_time
-                    if elapsed < target_period:
-                        time.sleep(target_period - elapsed)
-                    last_wall_time = time.perf_counter()
-                    return viewer.is_running()
-
-                result = controller.run_episode(
-                    env, seed=effective_seed, step_callback=sync_viewer
-                )
+        if config.observation.source == "perception":
+            state_provider = RGBDPerceptionProvider(
+                OverheadRGBDCamera(env.model, config.camera),
+                env.data,
+                ColorDepthDetector(config.perception),
+            )
         else:
-            result = controller.run_episode(env, seed=effective_seed)
-        env.close()
+            state_provider = PrivilegedStateProvider(env)
+        use_viewer = config.simulation.viewer
+        try:
+            if use_viewer:
+                import mujoco.viewer
+
+                last_wall_time = time.perf_counter()
+                with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
+
+                    def sync_viewer(current_env: PandaUTableEnv) -> bool:
+                        nonlocal last_wall_time
+                        viewer.sync()
+                        target_period = (
+                            current_env.model.opt.timestep
+                            * current_env.config.simulation.frame_skip
+                        )
+                        elapsed = time.perf_counter() - last_wall_time
+                        if elapsed < target_period:
+                            time.sleep(target_period - elapsed)
+                        last_wall_time = time.perf_counter()
+                        return viewer.is_running()
+
+                    result = controller.run_episode(
+                        env,
+                        seed=effective_seed,
+                        state_provider=state_provider,
+                        step_callback=sync_viewer,
+                    )
+            else:
+                result = controller.run_episode(
+                    env, seed=effective_seed, state_provider=state_provider
+                )
+        finally:
+            state_provider.close()
+            env.close()
     except Exception as exc:
         print(f"Program error: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise

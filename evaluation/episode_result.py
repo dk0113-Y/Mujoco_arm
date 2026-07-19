@@ -16,6 +16,11 @@ class FailureReason(str, Enum):
     PLACE_XY_ERROR = "place_xy_error"
     PLACE_HEIGHT_ERROR = "place_height_error"
     TIMEOUT = "timeout"
+    PERCEPTION_OBJECT_NOT_FOUND = "perception_object_not_found"
+    PERCEPTION_TARGET_NOT_FOUND = "perception_target_not_found"
+    PERCEPTION_INVALID_DEPTH = "perception_invalid_depth"
+    PERCEPTION_PROJECTION_ERROR = "perception_projection_error"
+    PERCEPTION_LOW_CONFIDENCE = "perception_low_confidence"
     UNEXPECTED_EXCEPTION = "unexpected_exception"
 
 
@@ -44,6 +49,16 @@ class EpisodeResult:
     final_object_position: tuple[float, float, float] | None = None
     target_position: tuple[float, float, float] | None = None
     key_errors: dict[str, float] | None = None
+    observation_source: str = "privileged"
+    perception_success: bool | None = None
+    estimated_object_position: tuple[float, float, float] | None = None
+    estimated_target_position: tuple[float, float, float] | None = None
+    object_position_error: float | None = None
+    target_position_error: float | None = None
+    perception_failure_reason: str | None = None
+    perception_latency_ms: float | None = None
+    camera_name: str | None = None
+    image_resolution: tuple[int, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible plain dictionary."""

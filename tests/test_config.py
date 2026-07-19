@@ -46,6 +46,24 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "friction range"):
             validate_config(invalid)
 
+    def test_invalid_observation_source_is_rejected(self) -> None:
+        config = load_config(CONFIG_PATH)
+        invalid = replace(
+            config,
+            observation=replace(config.observation, source="fallback"),
+        )
+        with self.assertRaisesRegex(ValueError, "observation.source"):
+            validate_config(invalid)
+
+    def test_invalid_camera_axes_are_rejected(self) -> None:
+        config = load_config(CONFIG_PATH)
+        invalid = replace(
+            config,
+            camera=replace(config.camera, y_axis_world=config.camera.x_axis_world),
+        )
+        with self.assertRaisesRegex(ValueError, "orthogonal"):
+            validate_config(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,6 +31,7 @@ class ModelLoadingTests(unittest.TestCase):
                 "pick_object_geom",
             ),
             mujoco.mjtObj.mjOBJ_SITE: ("place_target", "gripper_tcp"),
+            mujoco.mjtObj.mjOBJ_CAMERA: ("overhead_rgbd",),
             mujoco.mjtObj.mjOBJ_JOINT: (
                 *(f"joint{index}" for index in range(1, 8)),
                 "finger_joint1",

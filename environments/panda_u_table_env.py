@@ -62,11 +62,21 @@ def load_u_table_model(
         raise RuntimeError("Panda XML is missing compiler or worldbody")
     compiler.set("meshdir", PANDA_ASSET_DIR.resolve().as_posix())
 
-    scene_worldbody = ET.parse(scene_path).getroot().find("worldbody")
+    scene_root = ET.parse(scene_path).getroot()
+    scene_worldbody = scene_root.find("worldbody")
     if scene_worldbody is None:
         raise RuntimeError("U-table scene XML is missing worldbody")
     for element in list(scene_worldbody):
         worldbody.append(element)
+
+    scene_visual = scene_root.find("visual")
+    if scene_visual is not None:
+        panda_visual = panda_root.find("visual")
+        if panda_visual is None:
+            panda_root.append(scene_visual)
+        else:
+            for element in list(scene_visual):
+                panda_visual.append(element)
 
     hand = panda_root.find(".//body[@name='hand']")
     if hand is None:
@@ -149,6 +159,10 @@ class PandaUTableEnv:
         self.gripper_actuator_id = _required_id(
             self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, GRIPPER_ACTUATOR_NAME
         )
+        self.overhead_camera_id = _required_id(
+            self.model, mujoco.mjtObj.mjOBJ_CAMERA, self.config.camera.name
+        )
+        self._configure_overhead_camera()
         self.arm_qpos_addresses = self.model.jnt_qposadr[self.arm_joint_ids].astype(int)
         self.arm_dof_addresses = self.model.jnt_dofadr[self.arm_joint_ids].astype(int)
         self.finger_qpos_addresses = self.model.jnt_qposadr[
@@ -192,6 +206,26 @@ class PandaUTableEnv:
         self._base_object_friction = np.asarray(
             self.model.geom_friction[self.object_geom_id], dtype=float
         ).copy()
+
+    def _configure_overhead_camera(self) -> None:
+        if int(self.model.cam_bodyid[self.overhead_camera_id]) != 0:
+            raise RuntimeError("overhead_rgbd must be attached directly to worldbody")
+        x_axis = np.asarray(self.config.camera.x_axis_world, dtype=float)
+        y_axis = np.asarray(self.config.camera.y_axis_world, dtype=float)
+        z_axis = np.cross(x_axis, y_axis)
+        rotation_world_from_camera = np.column_stack((x_axis, y_axis, z_axis))
+        quaternion = np.empty(4, dtype=float)
+        mujoco.mju_mat2Quat(quaternion, rotation_world_from_camera.ravel())
+        self.model.cam_pos[self.overhead_camera_id] = self.config.camera.position
+        self.model.cam_quat[self.overhead_camera_id] = quaternion
+        self.model.cam_fovy[self.overhead_camera_id] = self.config.camera.fovy
+        self.model.vis.global_.offwidth = max(
+            int(self.model.vis.global_.offwidth), self.config.camera.width
+        )
+        self.model.vis.global_.offheight = max(
+            int(self.model.vis.global_.offheight), self.config.camera.height
+        )
+        mujoco.mj_forward(self.model, self.data)
 
     def _is_descendant_body(self, body_id: int, ancestor_id: int) -> bool:
         while body_id > 0:
@@ -319,18 +353,17 @@ class PandaUTableEnv:
         except (RuntimeError, ValueError) as exc:
             raise InvalidResetError(str(exc)) from exc
 
-        info = episode.as_dict()
-        info.update(
-            {
-                "actual_object_position": actual_object.tolist(),
-                "simulation_time": float(self.data.time),
-            }
-        )
+        if self.config.observation.source == "privileged":
+            info = episode.as_dict()
+            info["actual_object_position"] = actual_object.tolist()
+        else:
+            info = {"seed": self.current_seed, "observation_source": "perception"}
+        info["simulation_time"] = float(self.data.time)
         return self.observation(), info
 
     def observation(self) -> dict[str, Any]:
-        """Return state, explicitly naming external task state as privileged."""
-        return {
+        """Return robot state; external truth is exposed only in privileged mode."""
+        observation = {
             "arm_joint_positions": self.data.qpos[self.arm_qpos_addresses].copy(),
             "arm_joint_velocities": self.data.qvel[self.arm_dof_addresses].copy(),
             "finger_positions": self.data.qpos[self.finger_qpos_addresses].copy(),
@@ -338,14 +371,20 @@ class PandaUTableEnv:
             "tcp_orientation": self.data.site_xmat[self.tcp_site_id]
             .reshape(3, 3)
             .copy(),
-            "privileged_object_position": self.data.xpos[
-                self.object_body_id
-            ].copy(),
-            "privileged_place_target_position": self.data.site_xpos[
-                self.place_target_site_id
-            ].copy(),
             "simulation_time": float(self.data.time),
         }
+        if self.config.observation.source == "privileged":
+            observation.update(
+                {
+                    "privileged_object_position": self.data.xpos[
+                        self.object_body_id
+                    ].copy(),
+                    "privileged_place_target_position": self.data.site_xpos[
+                        self.place_target_site_id
+                    ].copy(),
+                }
+            )
+        return observation
 
     def placement_errors(self) -> tuple[float, float]:
         if self.current_episode is None:
@@ -378,14 +417,6 @@ class PandaUTableEnv:
             return "robot_table_collision"
         if self.data.time >= self.config.simulation.episode_timeout:
             return "timeout"
-        if (
-            lift_was_confirmed
-            and stage == "move_above_target"
-            and initial_object_height is not None
-            and self.data.xpos[self.object_body_id, 2]
-            < initial_object_height + 0.5 * self.config.controller.minimum_lift_height
-        ):
-            return "dropped_object"
         return None
 
     def step(
@@ -409,7 +440,8 @@ class PandaUTableEnv:
             mujoco.mj_step(self.model, self.data)
             self._update_collision_events()
 
-        success = self.success()
+        privileged = self.config.observation.source == "privileged"
+        success = self.success() if privileged else False
         collision = self.robot_table_collision()
         timeout = self.data.time >= self.config.simulation.episode_timeout
         terminated = success or collision
@@ -417,7 +449,9 @@ class PandaUTableEnv:
         failure_reason = "robot_table_collision" if collision else (
             "timeout" if truncated else None
         )
-        xy_error, height_error = self.placement_errors()
+        xy_error, height_error = (
+            self.placement_errors() if privileged else (None, None)
+        )
         info = {
             "success": success,
             "failure_reason": failure_reason,

@@ -35,6 +35,33 @@ episode_timeout = 35.0
 frame_skip = 1
 viewer = false
 
+[observation]
+source = "privileged"
+
+[camera]
+name = "overhead_rgbd"
+width = 512
+height = 512
+position = [0.70, 0.0, 2.0]
+x_axis_world = [0.96949834, 0.0, -0.24509789]
+y_axis_world = [0.0, 1.0, 0.0]
+fovy = 60.0
+
+[perception]
+minimum_object_pixels = 30
+minimum_target_pixels = 80
+minimum_confidence = 0.50
+minimum_depth = 0.05
+maximum_depth = 5.0
+object_min_rgb = [70.0, 0.0, 0.0]
+object_dominance_ratio = 1.70
+target_min_rgb = [0.0, 55.0, 0.0]
+target_dominance_ratio = 1.25
+object_world_z_range = [0.20, 0.80]
+target_world_z_range = [0.20, 0.24]
+object_surface_to_center = 0.025
+target_surface_to_center = 0.002
+
 [controller]
 ik_max_iterations = 500
 ik_damping = 0.05

@@ -10,6 +10,13 @@ import numpy as np
 from environments.config import ControllerConfig
 from environments.panda_u_table_env import InvalidResetError, PandaUTableEnv
 from evaluation.episode_result import EpisodeResult, FailureReason
+from evaluation.perception_evaluator import (
+    EpisodeOutcome,
+    build_episode_result,
+    evaluate_task_state,
+)
+from perception.state_provider import PrivilegedStateProvider, TaskStateProvider
+from perception.types import PerceptionMetrics, TaskStateEstimate
 
 
 class IKNotConvergedError(RuntimeError):
@@ -270,58 +277,99 @@ class FixedDLSPickPlaceController:
         lift_height: float | None,
         exception_message: str | None,
         key_errors: dict[str, float],
+        task_state: TaskStateEstimate | None,
+        perception_metrics: PerceptionMetrics | None,
     ) -> EpisodeResult:
-        episode = env.current_episode
-        final_tcp: tuple[float, float, float] | None = None
-        final_object: tuple[float, float, float] | None = None
-        target: tuple[float, float, float] | None = None
-        xy_error: float | None = None
-        height_error: float | None = None
-        if episode is not None:
-            final_tcp = tuple(float(value) for value in env.data.site_xpos[env.tcp_site_id])
-            final_object = tuple(
-                float(value) for value in env.data.xpos[env.object_body_id]
-            )
-            target = tuple(
-                float(value) for value in env.data.site_xpos[env.place_target_site_id]
-            )
-            xy_error, height_error = env.placement_errors()
-        return EpisodeResult(
-            seed=env.current_seed,
-            pick_mode=env.config.pick.mode,
-            place_mode=env.config.place.mode,
-            physics_mode=env.config.physics.mode,
-            pick_region=None if episode is None else episode.pick_region,
-            place_region=None if episode is None else episode.place_region,
-            sampled_pick_position=None if episode is None else episode.pick_position,
-            sampled_place_position=None if episode is None else episode.place_position,
-            sampled_mass=None if episode is None else episode.mass,
-            sampled_friction=None if episode is None else episode.friction,
-            success=success,
-            failure_reason=None if failure_reason is None else failure_reason.value,
-            final_stage=stage,
-            simulation_time=float(env.data.time),
-            lift_height=lift_height,
-            final_xy_error=xy_error,
-            final_height_error=height_error,
-            collision_count=env.collision_count,
-            exception_message=exception_message,
-            final_tcp_position=final_tcp,
-            final_object_position=final_object,
-            target_position=target,
-            key_errors=dict(key_errors) or None,
+        return build_episode_result(
+            env,
+            EpisodeOutcome(
+                success=success,
+                failure_reason=failure_reason,
+                stage=stage,
+                lift_height=lift_height,
+                exception_message=exception_message,
+                key_errors=key_errors,
+            ),
+            task_state,
+            perception_metrics,
         )
+
+    @staticmethod
+    def _failure_from_state(state: TaskStateEstimate) -> FailureReason:
+        reason = state.failure_reason or "perception_low_confidence"
+        try:
+            return FailureReason(reason)
+        except ValueError:
+            return FailureReason.PERCEPTION_PROJECTION_ERROR
+
+    @staticmethod
+    def _estimate(provider: TaskStateProvider) -> TaskStateEstimate:
+        try:
+            return provider.estimate()
+        except Exception as exc:
+            if provider.source == "perception":
+                raise ControllerFailure(
+                    FailureReason.PERCEPTION_PROJECTION_ERROR,
+                    f"Perception provider failed: {type(exc).__name__}: {exc}",
+                ) from exc
+            raise
+
+    def _require_initial_state(
+        self, provider: TaskStateProvider
+    ) -> TaskStateEstimate:
+        state = self._estimate(provider)
+        if (
+            not state.valid
+            or state.object_position is None
+            or state.target_position is None
+            or not np.all(np.isfinite(state.object_position))
+            or not np.all(np.isfinite(state.target_position))
+        ):
+            reason = (
+                self._failure_from_state(state)
+                if provider.source == "perception"
+                else FailureReason.UNEXPECTED_EXCEPTION
+            )
+            raise ControllerFailure(
+                reason,
+                f"Task-state provider returned an invalid initial estimate: "
+                f"{state.failure_reason}",
+            )
+        return state
+
+    def _runtime_object_position(
+        self, provider: TaskStateProvider
+    ) -> tuple[np.ndarray, TaskStateEstimate]:
+        state = self._estimate(provider)
+        if state.failure_reason not in (None, "perception_target_not_found"):
+            raise ControllerFailure(
+                self._failure_from_state(state),
+                f"Runtime task-state estimate failed: {state.failure_reason}",
+            )
+        if state.object_position is None or not np.all(
+            np.isfinite(state.object_position)
+        ):
+            reason = (
+                self._failure_from_state(state)
+                if provider.source == "perception"
+                else FailureReason.UNEXPECTED_EXCEPTION
+            )
+            raise ControllerFailure(reason, "Runtime object position is unavailable")
+        return np.asarray(state.object_position, dtype=float), state
 
     def run_episode(
         self,
         env: PandaUTableEnv,
         *,
         seed: int | None = None,
+        state_provider: TaskStateProvider | None = None,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None = None,
     ) -> EpisodeResult:
         stage = "reset"
         lift_height: float | None = None
         key_errors: dict[str, float] = {}
+        task_state: TaskStateEstimate | None = None
+        perception_metrics: PerceptionMetrics | None = None
         try:
             env.reset(seed=seed)
         except InvalidResetError as exc:
@@ -333,6 +381,8 @@ class FixedDLSPickPlaceController:
                 lift_height=lift_height,
                 exception_message=str(exc),
                 key_errors=key_errors,
+                task_state=task_state,
+                perception_metrics=perception_metrics,
             )
         except Exception:
             return self._result(
@@ -343,18 +393,37 @@ class FixedDLSPickPlaceController:
                 lift_height=lift_height,
                 exception_message=traceback.format_exc(),
                 key_errors=key_errors,
+                task_state=task_state,
+                perception_metrics=perception_metrics,
             )
 
-        initial_object = env.data.xpos[env.object_body_id].copy()
-        target_position = env.data.site_xpos[env.place_target_site_id].copy()
-        target_rotation = env.data.site_xmat[env.tcp_site_id].reshape(3, 3).copy()
-        actions = self._actions(env, initial_object, target_position)
-        action_index = 0
-        action_start_time = float(env.data.time)
-        motion_plan: MotionPlan | None = None
-        lift_was_confirmed = False
-
         try:
+            if state_provider is None:
+                if env.config.observation.source == "perception":
+                    raise ControllerFailure(
+                        FailureReason.PERCEPTION_PROJECTION_ERROR,
+                        "Perception mode requires an explicit RGBDPerceptionProvider",
+                    )
+                state_provider = PrivilegedStateProvider(env)
+            if state_provider.source != env.config.observation.source:
+                raise ValueError(
+                    "State provider source does not match observation config: "
+                    f"provider={state_provider.source}, "
+                    f"config={env.config.observation.source}"
+                )
+            stage = "task_state_estimation"
+            task_state = self._require_initial_state(state_provider)
+            if task_state.source == "perception":
+                perception_metrics = evaluate_task_state(env, task_state)
+            initial_object = np.asarray(task_state.object_position, dtype=float)
+            target_position = np.asarray(task_state.target_position, dtype=float)
+            target_rotation = env.data.site_xmat[env.tcp_site_id].reshape(3, 3).copy()
+            actions = self._actions(env, initial_object, target_position)
+            action_index = 0
+            action_start_time = float(env.data.time)
+            motion_plan: MotionPlan | None = None
+            lift_was_confirmed = False
+
             while action_index < len(actions):
                 action = actions[action_index]
                 stage = action.stage
@@ -377,17 +446,7 @@ class FixedDLSPickPlaceController:
                         FailureReason.TIMEOUT, "Viewer was closed before episode completion"
                     )
 
-                current_lift = float(
-                    env.data.xpos[env.object_body_id, 2] - initial_object[2]
-                )
-                lift_height = (
-                    current_lift if lift_height is None else max(lift_height, current_lift)
-                )
-                reason = env.failure_reason(
-                    stage=stage,
-                    initial_object_height=float(initial_object[2]),
-                    lift_was_confirmed=lift_was_confirmed,
-                )
+                reason = env.failure_reason(stage=stage)
                 if reason is not None:
                     raise ControllerFailure(
                         FailureReason(reason), f"Environment failure during {stage}: {reason}"
@@ -411,8 +470,14 @@ class FixedDLSPickPlaceController:
                                 errors={"waypoint_error": waypoint_error},
                             )
                         if stage == "lift_object":
-                            lift_gain = float(
-                                env.data.xpos[env.object_body_id, 2] - initial_object[2]
+                            runtime_object, _ = self._runtime_object_position(
+                                state_provider
+                            )
+                            lift_gain = float(runtime_object[2] - initial_object[2])
+                            lift_height = (
+                                lift_gain
+                                if lift_height is None
+                                else max(lift_height, lift_gain)
                             )
                             key_errors["lift_height"] = lift_gain
                             if lift_gain < self.config.minimum_lift_height:
@@ -423,6 +488,24 @@ class FixedDLSPickPlaceController:
                                     errors={"lift_height": lift_gain},
                                 )
                             lift_was_confirmed = True
+                        elif stage == "move_above_target" and lift_was_confirmed:
+                            runtime_object, _ = self._runtime_object_position(
+                                state_provider
+                            )
+                            transfer_height = float(
+                                runtime_object[2] - initial_object[2]
+                            )
+                            lift_height = (
+                                transfer_height
+                                if lift_height is None
+                                else max(lift_height, transfer_height)
+                            )
+                            if transfer_height < 0.5 * self.config.minimum_lift_height:
+                                raise ControllerFailure(
+                                    FailureReason.DROPPED_OBJECT,
+                                    "Object was not elevated at the transfer waypoint",
+                                    errors={"transfer_height": transfer_height},
+                                )
                         motion_plan = None
                         action_index += 1
                         action_start_time = float(env.data.time)
@@ -432,7 +515,13 @@ class FixedDLSPickPlaceController:
                         action_start_time = float(env.data.time)
 
             stage = "final_validation"
-            xy_error, height_error = env.placement_errors()
+            final_object, _ = self._runtime_object_position(state_provider)
+            final_lift = float(final_object[2] - initial_object[2])
+            lift_height = (
+                final_lift if lift_height is None else max(lift_height, final_lift)
+            )
+            xy_error = float(np.linalg.norm(final_object[:2] - target_position[:2]))
+            height_error = abs(float(final_object[2] - initial_object[2]))
             key_errors["final_xy_error"] = xy_error
             key_errors["final_height_error"] = height_error
             if xy_error > self.config.place_xy_tolerance:
@@ -457,6 +546,8 @@ class FixedDLSPickPlaceController:
                 lift_height=lift_height,
                 exception_message=None,
                 key_errors=key_errors,
+                task_state=task_state,
+                perception_metrics=perception_metrics,
             )
         except ControllerFailure as exc:
             key_errors.update(exc.errors)
@@ -468,6 +559,8 @@ class FixedDLSPickPlaceController:
                 lift_height=lift_height,
                 exception_message=str(exc),
                 key_errors=key_errors,
+                task_state=task_state,
+                perception_metrics=perception_metrics,
             )
         except Exception:
             return self._result(
@@ -478,4 +571,6 @@ class FixedDLSPickPlaceController:
                 lift_height=lift_height,
                 exception_message=traceback.format_exc(),
                 key_errors=key_errors,
+                task_state=task_state,
+                perception_metrics=perception_metrics,
             )

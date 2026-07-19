@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
 from pathlib import Path
 import tomllib
 from typing import Any, Mapping
@@ -8,6 +9,7 @@ from typing import Any, Mapping
 
 REGION_NAMES = frozenset({"front", "left", "right"})
 MODES = frozenset({"fixed", "random"})
+OBSERVATION_SOURCES = frozenset({"privileged", "perception"})
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,39 @@ class SimulationConfig:
 
 
 @dataclass(frozen=True)
+class ObservationConfig:
+    source: str
+
+
+@dataclass(frozen=True)
+class CameraConfig:
+    name: str
+    width: int
+    height: int
+    position: tuple[float, float, float]
+    x_axis_world: tuple[float, float, float]
+    y_axis_world: tuple[float, float, float]
+    fovy: float
+
+
+@dataclass(frozen=True)
+class PerceptionConfig:
+    minimum_object_pixels: int
+    minimum_target_pixels: int
+    minimum_confidence: float
+    minimum_depth: float
+    maximum_depth: float
+    object_min_rgb: tuple[float, float, float]
+    object_dominance_ratio: float
+    target_min_rgb: tuple[float, float, float]
+    target_dominance_ratio: float
+    object_world_z_range: tuple[float, float]
+    target_world_z_range: tuple[float, float]
+    object_surface_to_center: float
+    target_surface_to_center: float
+
+
+@dataclass(frozen=True)
 class ControllerConfig:
     ik_max_iterations: int
     ik_damping: float
@@ -85,6 +120,9 @@ class EnvConfig:
     place: PlaceConfig
     physics: PhysicsConfig
     simulation: SimulationConfig
+    observation: ObservationConfig
+    camera: CameraConfig
+    perception: PerceptionConfig
     controller: ControllerConfig
 
     def with_modes(
@@ -95,6 +133,7 @@ class EnvConfig:
         physics_mode: str | None = None,
         seed: int | None = None,
         viewer: bool | None = None,
+        observation_source: str | None = None,
     ) -> "EnvConfig":
         updated = replace(
             self,
@@ -114,6 +153,14 @@ class EnvConfig:
             simulation=replace(
                 self.simulation,
                 viewer=self.simulation.viewer if viewer is None else viewer,
+            ),
+            observation=replace(
+                self.observation,
+                source=(
+                    self.observation.source
+                    if observation_source is None
+                    else observation_source
+                ),
             ),
         )
         validate_config(updated)
@@ -169,6 +216,9 @@ def load_config(path: str | Path) -> EnvConfig:
     place_base = _position(place_raw, "place")
     physics = _section(raw, "physics")
     simulation = _section(raw, "simulation")
+    observation = _section(raw, "observation")
+    camera = _section(raw, "camera")
+    perception = _section(raw, "perception")
     controller = _section(raw, "controller")
 
     config = EnvConfig(
@@ -208,6 +258,59 @@ def load_config(path: str | Path) -> EnvConfig:
             episode_timeout=float(simulation.get("episode_timeout", -1.0)),
             frame_skip=int(simulation.get("frame_skip", 0)),
             viewer=bool(simulation.get("viewer", False)),
+        ),
+        observation=ObservationConfig(source=str(observation.get("source", ""))),
+        camera=CameraConfig(
+            name=str(camera.get("name", "")),
+            width=int(camera.get("width", 0)),
+            height=int(camera.get("height", 0)),
+            position=_tuple_of_floats(camera.get("position"), 3, "camera.position"),
+            x_axis_world=_tuple_of_floats(
+                camera.get("x_axis_world"), 3, "camera.x_axis_world"
+            ),
+            y_axis_world=_tuple_of_floats(
+                camera.get("y_axis_world"), 3, "camera.y_axis_world"
+            ),
+            fovy=float(camera.get("fovy", -1.0)),
+        ),
+        perception=PerceptionConfig(
+            minimum_object_pixels=int(
+                perception.get("minimum_object_pixels", 0)
+            ),
+            minimum_target_pixels=int(
+                perception.get("minimum_target_pixels", 0)
+            ),
+            minimum_confidence=float(perception.get("minimum_confidence", -1.0)),
+            minimum_depth=float(perception.get("minimum_depth", -1.0)),
+            maximum_depth=float(perception.get("maximum_depth", -1.0)),
+            object_min_rgb=_tuple_of_floats(
+                perception.get("object_min_rgb"), 3, "perception.object_min_rgb"
+            ),
+            object_dominance_ratio=float(
+                perception.get("object_dominance_ratio", -1.0)
+            ),
+            target_min_rgb=_tuple_of_floats(
+                perception.get("target_min_rgb"), 3, "perception.target_min_rgb"
+            ),
+            target_dominance_ratio=float(
+                perception.get("target_dominance_ratio", -1.0)
+            ),
+            object_world_z_range=_tuple_of_floats(
+                perception.get("object_world_z_range"),
+                2,
+                "perception.object_world_z_range",
+            ),
+            target_world_z_range=_tuple_of_floats(
+                perception.get("target_world_z_range"),
+                2,
+                "perception.target_world_z_range",
+            ),
+            object_surface_to_center=float(
+                perception.get("object_surface_to_center", -1.0)
+            ),
+            target_surface_to_center=float(
+                perception.get("target_surface_to_center", -1.0)
+            ),
         ),
         controller=ControllerConfig(
             **{
@@ -317,6 +420,77 @@ def validate_config(config: EnvConfig) -> None:
         raise ValueError("Simulation times must be non-negative, with a positive timeout")
     if simulation.frame_skip <= 0:
         raise ValueError("simulation.frame_skip must be positive")
+
+    if config.observation.source not in OBSERVATION_SOURCES:
+        raise ValueError(
+            "observation.source must be 'privileged' or 'perception', got "
+            f"{config.observation.source!r}"
+        )
+
+    camera = config.camera
+    if camera.name != "overhead_rgbd":
+        raise ValueError("camera.name must be 'overhead_rgbd'")
+    if camera.width <= 0 or camera.height <= 0:
+        raise ValueError("camera width and height must be positive")
+    if not 0.0 < camera.fovy < 180.0:
+        raise ValueError("camera.fovy must be between 0 and 180 degrees")
+    vectors = (camera.position, camera.x_axis_world, camera.y_axis_world)
+    if not all(math.isfinite(value) for vector in vectors for value in vector):
+        raise ValueError("camera position and axes must contain finite values")
+    x_norm = math.sqrt(sum(value * value for value in camera.x_axis_world))
+    y_norm = math.sqrt(sum(value * value for value in camera.y_axis_world))
+    dot = sum(
+        x_value * y_value
+        for x_value, y_value in zip(camera.x_axis_world, camera.y_axis_world)
+    )
+    if not math.isclose(x_norm, 1.0, abs_tol=1e-6):
+        raise ValueError("camera.x_axis_world must be a unit vector")
+    if not math.isclose(y_norm, 1.0, abs_tol=1e-6):
+        raise ValueError("camera.y_axis_world must be a unit vector")
+    if not math.isclose(dot, 0.0, abs_tol=1e-6):
+        raise ValueError("camera x/y axes must be orthogonal")
+    z_axis = (
+        camera.x_axis_world[1] * camera.y_axis_world[2]
+        - camera.x_axis_world[2] * camera.y_axis_world[1],
+        camera.x_axis_world[2] * camera.y_axis_world[0]
+        - camera.x_axis_world[0] * camera.y_axis_world[2],
+        camera.x_axis_world[0] * camera.y_axis_world[1]
+        - camera.x_axis_world[1] * camera.y_axis_world[0],
+    )
+    if z_axis[2] < 0.9:
+        raise ValueError("overhead camera local -Z axis must point mostly downward")
+
+    perception = config.perception
+    if perception.minimum_object_pixels <= 0 or perception.minimum_target_pixels <= 0:
+        raise ValueError("perception minimum pixel counts must be positive")
+    if not 0.0 <= perception.minimum_confidence <= 1.0:
+        raise ValueError("perception.minimum_confidence must be in [0, 1]")
+    if perception.minimum_depth <= 0.0 or (
+        perception.minimum_depth >= perception.maximum_depth
+    ):
+        raise ValueError("perception depth range is invalid")
+    for field_name, values in (
+        ("object_min_rgb", perception.object_min_rgb),
+        ("target_min_rgb", perception.target_min_rgb),
+    ):
+        if any(value < 0.0 or value > 255.0 for value in values):
+            raise ValueError(f"perception.{field_name} values must be in [0, 255]")
+    if (
+        perception.object_dominance_ratio <= 1.0
+        or perception.target_dominance_ratio <= 1.0
+    ):
+        raise ValueError("perception color dominance ratios must exceed 1")
+    for field_name, value_range in (
+        ("object_world_z_range", perception.object_world_z_range),
+        ("target_world_z_range", perception.target_world_z_range),
+    ):
+        if value_range[0] >= value_range[1]:
+            raise ValueError(f"perception.{field_name} lower bound exceeds upper bound")
+    if (
+        perception.object_surface_to_center < 0.0
+        or perception.target_surface_to_center < 0.0
+    ):
+        raise ValueError("perception surface-to-center corrections must be non-negative")
 
     controller = config.controller
     positive_values = {
