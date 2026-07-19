@@ -1,0 +1,33 @@
+<mujoco model="panda U-table scene additions">
+  <worldbody>
+    <light name="u_table_scene_light" pos="0.4 -0.4 1.6" dir="0.1 0.1 -1" directional="true"/>
+
+    <geom name="floor" type="plane" size="2 2 0.05" rgba="0.72 0.72 0.72 1"
+      friction="1 0.005 0.0001"/>
+
+    <!-- All table tops are at z=0.22 m. The open side of the U faces -X. -->
+    <body name="u_table_front" pos="0.55 0 0.20">
+      <geom name="u_table_front_geom" type="box" size="0.30 0.45 0.02"
+        rgba="0.48 0.31 0.18 1" friction="1 0.005 0.0001"/>
+    </body>
+
+    <body name="u_table_left" pos="0.10 0.57 0.20">
+      <geom name="u_table_left_geom" type="box" size="0.45 0.12 0.02"
+        rgba="0.52 0.34 0.20 1" friction="1 0.005 0.0001"/>
+    </body>
+
+    <body name="u_table_right" pos="0.10 -0.57 0.20">
+      <geom name="u_table_right_geom" type="box" size="0.45 0.12 0.02"
+        rgba="0.52 0.34 0.20 1" friction="1 0.005 0.0001"/>
+    </body>
+
+    <body name="pick_object" pos="0.50 0.12 0.246">
+      <freejoint name="pick_object_free_joint"/>
+      <geom name="pick_object_geom" type="box" size="0.025 0.025 0.025" mass="0.10"
+        rgba="0.85 0.15 0.10 1" friction="1.2 0.01 0.001"/>
+    </body>
+
+    <site name="place_target" type="cylinder" pos="0.50 -0.20 0.222"
+      size="0.055 0.002" rgba="0.10 0.80 0.20 0.45"/>
+  </worldbody>
+</mujoco>

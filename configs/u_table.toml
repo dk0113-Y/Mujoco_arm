@@ -1,0 +1,61 @@
+[environment]
+seed = 42
+
+[workspace]
+object_half_size = 0.025
+base_clearance_radius = 0.20
+spawn_clearance = 0.001
+target_site_offset = 0.002
+max_sampling_attempts = 200
+
+[pick]
+mode = "fixed"
+fixed_position = [0.50, 0.12, 0.246]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+
+[place]
+mode = "fixed"
+fixed_position = [0.50, -0.20, 0.222]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+minimum_xy_distance = 0.18
+
+[physics]
+mode = "fixed"
+fixed_mass = 0.10
+mass_range = [0.05, 0.20]
+fixed_friction = [1.20, 0.01, 0.001]
+friction_min = [0.80, 0.005, 0.0005]
+friction_max = [1.40, 0.02, 0.002]
+
+[simulation]
+settle_time = 1.0
+episode_timeout = 35.0
+frame_skip = 1
+viewer = false
+
+[controller]
+ik_max_iterations = 500
+ik_damping = 0.05
+ik_step_gain = 0.70
+ik_max_joint_step = 0.08
+ik_position_tolerance = 0.002
+orientation_tolerance = 0.03
+orientation_weight = 0.30
+waypoint_tolerance = 0.012
+waypoint_height = 0.18
+grasp_z_offset = 0.005
+lift_height = 0.20
+minimum_lift_height = 0.08
+place_xy_tolerance = 0.06
+place_height_tolerance = 0.03
+approach_duration = 4.0
+descent_duration = 3.0
+gripper_duration = 1.5
+lift_duration = 3.0
+transfer_duration = 4.0
+withdraw_duration = 3.0
+motion_hold_time = 0.6
+gripper_open_control = 255.0
+gripper_close_control = 0.0
