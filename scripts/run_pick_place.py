@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from controllers import FixedDLSPickPlaceController
+from controllers import FixedDLSPickPlaceController, SensorEventPickPlaceController
 from environments import PandaUTableEnv, load_config
 from evaluation import FailureReason
 from perception import (
@@ -23,7 +23,7 @@ from perception import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run one scripted Fixed-DLS Panda U-table pick/place episode."
+        description="Run one Panda U-table pick/place controller episode."
     )
     parser.add_argument(
         "--config",
@@ -34,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pick-mode", choices=("fixed", "random"), default=None)
     parser.add_argument("--place-mode", choices=("fixed", "random"), default=None)
     parser.add_argument("--physics-mode", choices=("fixed", "random"), default=None)
+    parser.add_argument(
+        "--controller",
+        choices=("fixed_dls_b0", "sensor_event_b1"),
+        default=None,
+    )
     parser.add_argument(
         "--observation-source",
         choices=("privileged", "perception"),
@@ -59,6 +64,7 @@ def print_summary(result: object) -> None:
         f"  regions: pick={data['pick_region']}, place={data['place_region']}"
     )
     print(f"  final stage: {data['final_stage']}")
+    print(f"  controller: {data['controller_type']}")
     print(f"  simulation time: {data['simulation_time']:.3f} s")
     print(f"  success: {data['success']}")
     print(f"  failure_reason: {data['failure_reason']}")
@@ -90,9 +96,21 @@ def main() -> int:
             physics_mode=args.physics_mode,
             viewer=args.viewer,
             observation_source=args.observation_source,
+            controller_type=args.controller,
         )
+        if (
+            config.controller.type == "sensor_event_b1"
+            and config.observation.source != "perception"
+        ):
+            raise ValueError(
+                "sensor_event_b1 requires --observation-source perception; "
+                "privileged external task state is forbidden for B1"
+            )
         env = PandaUTableEnv(config)
-        controller = FixedDLSPickPlaceController(config.controller)
+        if config.controller.type == "sensor_event_b1":
+            controller = SensorEventPickPlaceController(config.controller, config.b1)
+        else:
+            controller = FixedDLSPickPlaceController(config.controller)
         if config.observation.source == "perception":
             state_provider = RGBDPerceptionProvider(
                 OverheadRGBDCamera(env.model, config.camera),

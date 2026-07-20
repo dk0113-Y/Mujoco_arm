@@ -63,6 +63,7 @@ object_surface_to_center = 0.025
 target_surface_to_center = 0.002
 
 [controller]
+type = "fixed_dls_b0"
 ik_max_iterations = 500
 ik_damping = 0.05
 ik_step_gain = 0.70
@@ -86,3 +87,35 @@ withdraw_duration = 3.0
 motion_hold_time = 0.6
 gripper_open_control = 255.0
 gripper_close_control = 0.0
+
+[b1]
+initial_perception_frames = 5
+minimum_valid_perception_frames = 3
+pregrasp_perception_frames = 3
+minimum_valid_pregrasp_frames = 2
+pregrasp_observation_offset = [-0.08, 0.0, 0.0]
+maximum_position_spread = 0.02
+maximum_pregrasp_correction = 0.08
+allow_initial_object_fallback = false
+arrival_position_tolerance = 0.015
+arrival_orientation_tolerance = 0.05
+settled_joint_velocity_threshold = 0.15
+arrival_hold_steps = 15
+motion_timeout = 7.0
+close_timeout = 2.5
+empty_gripper_aperture_threshold = 0.004
+minimum_grasp_aperture = 0.008
+contact_debounce_steps = 3
+bilateral_contact_hold_steps = 10
+trial_lift_distance = 0.04
+trial_lift_timeout = 4.0
+grasp_confirmation_hold_steps = 15
+contact_loss_hold_steps = 25
+aperture_drop_threshold = 0.003
+release_aperture_threshold = 0.07
+release_timeout = 2.5
+final_observation_offset = [-0.08, 0.0, 0.0]
+final_verification_frames = 5
+final_minimum_valid_frames = 3
+final_place_xy_tolerance = 0.06
+final_place_height_tolerance = 0.03

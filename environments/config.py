@@ -10,6 +10,43 @@ from typing import Any, Mapping
 REGION_NAMES = frozenset({"front", "left", "right"})
 MODES = frozenset({"fixed", "random"})
 OBSERVATION_SOURCES = frozenset({"privileged", "perception"})
+CONTROLLER_TYPES = frozenset({"fixed_dls_b0", "sensor_event_b1"})
+
+# Keep pre-B1 configuration files loadable.  These defaults mirror the shipped
+# B1 baseline, while an explicitly present [b1] section is still parsed and
+# validated field by field below.
+_DEFAULT_B1_SECTION: Mapping[str, Any] = {
+    "initial_perception_frames": 5,
+    "minimum_valid_perception_frames": 3,
+    "pregrasp_perception_frames": 3,
+    "minimum_valid_pregrasp_frames": 2,
+    "pregrasp_observation_offset": [-0.08, 0.0, 0.0],
+    "maximum_position_spread": 0.02,
+    "maximum_pregrasp_correction": 0.08,
+    "allow_initial_object_fallback": False,
+    "arrival_position_tolerance": 0.015,
+    "arrival_orientation_tolerance": 0.05,
+    "settled_joint_velocity_threshold": 0.15,
+    "arrival_hold_steps": 15,
+    "motion_timeout": 7.0,
+    "close_timeout": 2.5,
+    "empty_gripper_aperture_threshold": 0.004,
+    "minimum_grasp_aperture": 0.008,
+    "contact_debounce_steps": 3,
+    "bilateral_contact_hold_steps": 10,
+    "trial_lift_distance": 0.04,
+    "trial_lift_timeout": 4.0,
+    "grasp_confirmation_hold_steps": 15,
+    "contact_loss_hold_steps": 25,
+    "aperture_drop_threshold": 0.003,
+    "release_aperture_threshold": 0.07,
+    "release_timeout": 2.5,
+    "final_observation_offset": [-0.08, 0.0, 0.0],
+    "final_verification_frames": 5,
+    "final_minimum_valid_frames": 3,
+    "final_place_xy_tolerance": 0.06,
+    "final_place_height_tolerance": 0.03,
+}
 
 
 @dataclass(frozen=True)
@@ -87,6 +124,7 @@ class PerceptionConfig:
 
 @dataclass(frozen=True)
 class ControllerConfig:
+    type: str
     ik_max_iterations: int
     ik_damping: float
     ik_step_gain: float
@@ -113,6 +151,40 @@ class ControllerConfig:
 
 
 @dataclass(frozen=True)
+class B1Config:
+    initial_perception_frames: int
+    minimum_valid_perception_frames: int
+    pregrasp_perception_frames: int
+    minimum_valid_pregrasp_frames: int
+    pregrasp_observation_offset: tuple[float, float, float]
+    maximum_position_spread: float
+    maximum_pregrasp_correction: float
+    allow_initial_object_fallback: bool
+    arrival_position_tolerance: float
+    arrival_orientation_tolerance: float
+    settled_joint_velocity_threshold: float
+    arrival_hold_steps: int
+    motion_timeout: float
+    close_timeout: float
+    empty_gripper_aperture_threshold: float
+    minimum_grasp_aperture: float
+    contact_debounce_steps: int
+    bilateral_contact_hold_steps: int
+    trial_lift_distance: float
+    trial_lift_timeout: float
+    grasp_confirmation_hold_steps: int
+    contact_loss_hold_steps: int
+    aperture_drop_threshold: float
+    release_aperture_threshold: float
+    release_timeout: float
+    final_observation_offset: tuple[float, float, float]
+    final_verification_frames: int
+    final_minimum_valid_frames: int
+    final_place_xy_tolerance: float
+    final_place_height_tolerance: float
+
+
+@dataclass(frozen=True)
 class EnvConfig:
     seed: int
     workspace: WorkspaceConfig
@@ -124,6 +196,7 @@ class EnvConfig:
     camera: CameraConfig
     perception: PerceptionConfig
     controller: ControllerConfig
+    b1: B1Config
 
     def with_modes(
         self,
@@ -134,6 +207,7 @@ class EnvConfig:
         seed: int | None = None,
         viewer: bool | None = None,
         observation_source: str | None = None,
+        controller_type: str | None = None,
     ) -> "EnvConfig":
         updated = replace(
             self,
@@ -162,6 +236,10 @@ class EnvConfig:
                     else observation_source
                 ),
             ),
+            controller=replace(
+                self.controller,
+                type=self.controller.type if controller_type is None else controller_type,
+            ),
         )
         validate_config(updated)
         return updated
@@ -181,11 +259,25 @@ def _tuple_of_floats(
 ) -> tuple[float, ...]:
     if not isinstance(value, list) or len(value) != length:
         raise ValueError(f"{field_name} must contain exactly {length} numbers")
+    if any(isinstance(item, bool) for item in value):
+        raise ValueError(f"{field_name} must contain only numbers")
     try:
         converted = tuple(float(item) for item in value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must contain only numbers") from exc
     return converted
+
+
+def _integer_value(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    return value
+
+
+def _float_value(value: Any, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number")
+    return float(value)
 
 
 def _position(section: Mapping[str, Any], name: str) -> PositionConfig:
@@ -220,6 +312,10 @@ def load_config(path: str | Path) -> EnvConfig:
     camera = _section(raw, "camera")
     perception = _section(raw, "perception")
     controller = _section(raw, "controller")
+    b1_value = raw.get("b1", _DEFAULT_B1_SECTION)
+    if not isinstance(b1_value, Mapping):
+        raise ValueError("Missing or invalid [b1] section")
+    b1 = b1_value
 
     config = EnvConfig(
         seed=int(environment.get("seed", 0)),
@@ -314,6 +410,7 @@ def load_config(path: str | Path) -> EnvConfig:
         ),
         controller=ControllerConfig(
             **{
+                "type": str(controller.get("type", "fixed_dls_b0")),
                 "ik_max_iterations": int(controller.get("ik_max_iterations", 0)),
                 "ik_damping": float(controller.get("ik_damping", -1.0)),
                 "ik_step_gain": float(controller.get("ik_step_gain", -1.0)),
@@ -366,6 +463,125 @@ def load_config(path: str | Path) -> EnvConfig:
                     controller.get("gripper_close_control", -1.0)
                 ),
             }
+        ),
+        b1=B1Config(
+            initial_perception_frames=_integer_value(
+                b1.get("initial_perception_frames", 0),
+                "b1.initial_perception_frames",
+            ),
+            minimum_valid_perception_frames=_integer_value(
+                b1.get("minimum_valid_perception_frames", 0),
+                "b1.minimum_valid_perception_frames",
+            ),
+            pregrasp_perception_frames=_integer_value(
+                b1.get("pregrasp_perception_frames", 0),
+                "b1.pregrasp_perception_frames",
+            ),
+            minimum_valid_pregrasp_frames=_integer_value(
+                b1.get("minimum_valid_pregrasp_frames", 0),
+                "b1.minimum_valid_pregrasp_frames",
+            ),
+            pregrasp_observation_offset=_tuple_of_floats(
+                b1.get("pregrasp_observation_offset", [-0.08, 0.0, 0.0]),
+                3,
+                "b1.pregrasp_observation_offset",
+            ),
+            maximum_position_spread=_float_value(
+                b1.get("maximum_position_spread", -1.0),
+                "b1.maximum_position_spread",
+            ),
+            maximum_pregrasp_correction=_float_value(
+                b1.get("maximum_pregrasp_correction", -1.0),
+                "b1.maximum_pregrasp_correction",
+            ),
+            allow_initial_object_fallback=b1.get(
+                "allow_initial_object_fallback", False
+            ),
+            arrival_position_tolerance=_float_value(
+                b1.get("arrival_position_tolerance", -1.0),
+                "b1.arrival_position_tolerance",
+            ),
+            arrival_orientation_tolerance=_float_value(
+                b1.get("arrival_orientation_tolerance", -1.0),
+                "b1.arrival_orientation_tolerance",
+            ),
+            settled_joint_velocity_threshold=_float_value(
+                b1.get("settled_joint_velocity_threshold", -1.0),
+                "b1.settled_joint_velocity_threshold",
+            ),
+            arrival_hold_steps=_integer_value(
+                b1.get("arrival_hold_steps", 0), "b1.arrival_hold_steps"
+            ),
+            motion_timeout=_float_value(
+                b1.get("motion_timeout", -1.0), "b1.motion_timeout"
+            ),
+            close_timeout=_float_value(
+                b1.get("close_timeout", -1.0), "b1.close_timeout"
+            ),
+            empty_gripper_aperture_threshold=_float_value(
+                b1.get("empty_gripper_aperture_threshold", -1.0),
+                "b1.empty_gripper_aperture_threshold",
+            ),
+            minimum_grasp_aperture=_float_value(
+                b1.get("minimum_grasp_aperture", -1.0),
+                "b1.minimum_grasp_aperture",
+            ),
+            contact_debounce_steps=_integer_value(
+                b1.get("contact_debounce_steps", 0),
+                "b1.contact_debounce_steps",
+            ),
+            bilateral_contact_hold_steps=_integer_value(
+                b1.get("bilateral_contact_hold_steps", 0),
+                "b1.bilateral_contact_hold_steps",
+            ),
+            trial_lift_distance=_float_value(
+                b1.get("trial_lift_distance", -1.0),
+                "b1.trial_lift_distance",
+            ),
+            trial_lift_timeout=_float_value(
+                b1.get("trial_lift_timeout", -1.0),
+                "b1.trial_lift_timeout",
+            ),
+            grasp_confirmation_hold_steps=_integer_value(
+                b1.get("grasp_confirmation_hold_steps", 0),
+                "b1.grasp_confirmation_hold_steps",
+            ),
+            contact_loss_hold_steps=_integer_value(
+                b1.get("contact_loss_hold_steps", 0),
+                "b1.contact_loss_hold_steps",
+            ),
+            aperture_drop_threshold=_float_value(
+                b1.get("aperture_drop_threshold", -1.0),
+                "b1.aperture_drop_threshold",
+            ),
+            release_aperture_threshold=_float_value(
+                b1.get("release_aperture_threshold", -1.0),
+                "b1.release_aperture_threshold",
+            ),
+            release_timeout=_float_value(
+                b1.get("release_timeout", -1.0), "b1.release_timeout"
+            ),
+            final_observation_offset=_tuple_of_floats(
+                b1.get("final_observation_offset", [-0.08, 0.0, 0.0]),
+                3,
+                "b1.final_observation_offset",
+            ),
+            final_verification_frames=_integer_value(
+                b1.get("final_verification_frames", 0),
+                "b1.final_verification_frames",
+            ),
+            final_minimum_valid_frames=_integer_value(
+                b1.get("final_minimum_valid_frames", 0),
+                "b1.final_minimum_valid_frames",
+            ),
+            final_place_xy_tolerance=_float_value(
+                b1.get("final_place_xy_tolerance", -1.0),
+                "b1.final_place_xy_tolerance",
+            ),
+            final_place_height_tolerance=_float_value(
+                b1.get("final_place_height_tolerance", -1.0),
+                "b1.final_place_height_tolerance",
+            ),
         ),
     )
     validate_config(config)
@@ -493,6 +709,11 @@ def validate_config(config: EnvConfig) -> None:
         raise ValueError("perception surface-to-center corrections must be non-negative")
 
     controller = config.controller
+    if controller.type not in CONTROLLER_TYPES:
+        raise ValueError(
+            "controller.type must be 'fixed_dls_b0' or 'sensor_event_b1', got "
+            f"{controller.type!r}"
+        )
     positive_values = {
         field: getattr(controller, field)
         for field in (
@@ -524,3 +745,122 @@ def validate_config(config: EnvConfig) -> None:
         raise ValueError("Controller offsets/hold time must be non-negative")
     if controller.gripper_open_control <= controller.gripper_close_control:
         raise ValueError("Open gripper control must exceed close gripper control")
+
+    b1 = config.b1
+    count_fields = {
+        "initial_perception_frames": b1.initial_perception_frames,
+        "minimum_valid_perception_frames": b1.minimum_valid_perception_frames,
+        "pregrasp_perception_frames": b1.pregrasp_perception_frames,
+        "minimum_valid_pregrasp_frames": b1.minimum_valid_pregrasp_frames,
+        "arrival_hold_steps": b1.arrival_hold_steps,
+        "contact_debounce_steps": b1.contact_debounce_steps,
+        "bilateral_contact_hold_steps": b1.bilateral_contact_hold_steps,
+        "grasp_confirmation_hold_steps": b1.grasp_confirmation_hold_steps,
+        "contact_loss_hold_steps": b1.contact_loss_hold_steps,
+        "final_verification_frames": b1.final_verification_frames,
+        "final_minimum_valid_frames": b1.final_minimum_valid_frames,
+    }
+    invalid_counts = [
+        name
+        for name, value in count_fields.items()
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0
+    ]
+    if invalid_counts:
+        raise ValueError(f"B1 counts must be positive: {', '.join(invalid_counts)}")
+    for minimum_name, minimum, total_name, total in (
+        (
+            "minimum_valid_perception_frames",
+            b1.minimum_valid_perception_frames,
+            "initial_perception_frames",
+            b1.initial_perception_frames,
+        ),
+        (
+            "minimum_valid_pregrasp_frames",
+            b1.minimum_valid_pregrasp_frames,
+            "pregrasp_perception_frames",
+            b1.pregrasp_perception_frames,
+        ),
+        (
+            "final_minimum_valid_frames",
+            b1.final_minimum_valid_frames,
+            "final_verification_frames",
+            b1.final_verification_frames,
+        ),
+    ):
+        if minimum > total:
+            raise ValueError(f"b1.{minimum_name} must not exceed b1.{total_name}")
+    positive_b1_values = {
+        name: getattr(b1, name)
+        for name in (
+            "maximum_position_spread",
+            "maximum_pregrasp_correction",
+            "arrival_position_tolerance",
+            "arrival_orientation_tolerance",
+            "settled_joint_velocity_threshold",
+            "motion_timeout",
+            "close_timeout",
+            "empty_gripper_aperture_threshold",
+            "minimum_grasp_aperture",
+            "trial_lift_distance",
+            "trial_lift_timeout",
+            "aperture_drop_threshold",
+            "release_aperture_threshold",
+            "release_timeout",
+            "final_place_xy_tolerance",
+            "final_place_height_tolerance",
+        )
+    }
+    invalid_b1_values = [
+        name
+        for name, value in positive_b1_values.items()
+        if not math.isfinite(value) or value <= 0.0
+    ]
+    if invalid_b1_values:
+        raise ValueError(
+            f"B1 values must be finite and positive: {', '.join(invalid_b1_values)}"
+        )
+    if not isinstance(b1.allow_initial_object_fallback, bool):
+        raise ValueError("b1.allow_initial_object_fallback must be a boolean")
+    if b1.minimum_grasp_aperture <= b1.empty_gripper_aperture_threshold:
+        raise ValueError(
+            "b1.minimum_grasp_aperture must exceed "
+            "b1.empty_gripper_aperture_threshold"
+        )
+    if b1.release_aperture_threshold <= b1.minimum_grasp_aperture:
+        raise ValueError(
+            "b1.release_aperture_threshold must exceed b1.minimum_grasp_aperture"
+        )
+    if b1.release_aperture_threshold > 0.08:
+        raise ValueError("b1.release_aperture_threshold must not exceed 0.08 m")
+    longest_reference_motion = max(
+        controller.approach_duration,
+        controller.descent_duration,
+        controller.transfer_duration,
+        controller.withdraw_duration,
+    )
+    if b1.motion_timeout <= longest_reference_motion:
+        raise ValueError(
+            "b1.motion_timeout must exceed every B1 reference motion duration"
+        )
+    for field_name in (
+        "empty_gripper_aperture_threshold",
+        "minimum_grasp_aperture",
+        "aperture_drop_threshold",
+    ):
+        if getattr(b1, field_name) > 0.08:
+            raise ValueError(f"b1.{field_name} must not exceed 0.08 m")
+    for field_name in ("pregrasp_observation_offset", "final_observation_offset"):
+        offset = getattr(b1, field_name)
+        if not all(math.isfinite(value) for value in offset):
+            raise ValueError(f"b1.{field_name} must contain finite values")
+        offset_norm = math.sqrt(sum(value * value for value in offset))
+        if offset_norm > 0.20:
+            raise ValueError(f"b1.{field_name} norm must not exceed 0.20 m")
+    if (
+        controller.type == "sensor_event_b1"
+        and config.observation.source != "perception"
+    ):
+        raise ValueError(
+            "controller.type 'sensor_event_b1' requires observation.source "
+            "'perception'"
+        )

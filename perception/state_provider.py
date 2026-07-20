@@ -10,7 +10,12 @@ from environments.panda_u_table_env import PandaUTableEnv
 
 from .color_depth_detector import ColorDepthDetector
 from .overhead_rgbd import OverheadRGBDCamera
-from .types import DetectionResult, RGBDFrame, TaskStateEstimate
+from .types import (
+    DetectionResult,
+    RGBDFrame,
+    TaskPerceptionFrame,
+    TaskStateEstimate,
+)
 
 
 class TaskStateProvider(Protocol):
@@ -20,6 +25,11 @@ class TaskStateProvider(Protocol):
         ...
 
     def close(self) -> None:
+        ...
+
+
+class PerceptionFrameProvider(TaskStateProvider, Protocol):
+    def observe(self) -> TaskPerceptionFrame:
         ...
 
 
@@ -77,7 +87,8 @@ class RGBDPerceptionProvider:
         self.last_object_detection: DetectionResult | None = None
         self.last_target_detection: DetectionResult | None = None
 
-    def estimate(self) -> TaskStateEstimate:
+    def observe(self) -> TaskPerceptionFrame:
+        """Return both component detections without imposing combined validity."""
         start = time.perf_counter()
         frame = self.camera.capture(self.data)
         object_detection = self.detector.detect_object(frame)
@@ -85,6 +96,20 @@ class RGBDPerceptionProvider:
         self.last_frame = frame
         self.last_object_detection = object_detection
         self.last_target_detection = target_detection
+        return TaskPerceptionFrame(
+            object_detection=object_detection,
+            target_detection=target_detection,
+            timestamp=frame.simulation_time,
+            latency_ms=(time.perf_counter() - start) * 1000.0,
+            camera_name=frame.camera_name,
+            image_resolution=(frame.width, frame.height),
+        )
+
+    def estimate(self) -> TaskStateEstimate:
+        start = time.perf_counter()
+        observation = self.observe()
+        object_detection = observation.object_detection
+        target_detection = observation.target_detection
 
         failure_reason: str | None = None
         if not object_detection.success:
@@ -106,7 +131,7 @@ class RGBDPerceptionProvider:
             target_id="place_target_0",
             object_position=object_detection.position,
             target_position=target_detection.position,
-            timestamp=frame.simulation_time,
+            timestamp=observation.timestamp,
             source=self.source,
             valid=valid,
             confidence=float(confidence),
@@ -114,8 +139,8 @@ class RGBDPerceptionProvider:
             object_pixel_count=object_detection.pixel_count,
             target_pixel_count=target_detection.pixel_count,
             latency_ms=(time.perf_counter() - start) * 1000.0,
-            camera_name=frame.camera_name,
-            image_resolution=(frame.width, frame.height),
+            camera_name=observation.camera_name,
+            image_resolution=observation.image_resolution,
         )
 
     def close(self) -> None:

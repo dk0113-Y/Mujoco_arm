@@ -56,6 +56,18 @@ class DetectionResult:
 
 
 @dataclass(frozen=True)
+class TaskPerceptionFrame:
+    """Independent object/target detections from one truth-isolated RGB-D frame."""
+
+    object_detection: DetectionResult
+    target_detection: DetectionResult
+    timestamp: float
+    latency_ms: float
+    camera_name: str
+    image_resolution: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class TaskStateEstimate:
     object_id: str
     target_id: str
