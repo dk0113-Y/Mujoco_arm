@@ -1,0 +1,2 @@
+# Automated Benchmark-0 smoke test only.
+1000

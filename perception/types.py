@@ -83,6 +83,12 @@ class TaskStateEstimate:
     latency_ms: float
     camera_name: str | None
     image_resolution: tuple[int, int] | None
+    object_valid: bool | None = None
+    target_valid: bool | None = None
+    object_confidence: float | None = None
+    target_confidence: float | None = None
+    object_failure_reason: str | None = None
+    target_failure_reason: str | None = None
 
 
 @dataclass(frozen=True)

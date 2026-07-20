@@ -118,7 +118,11 @@ def build_episode_result(
                 not controller_reported_success and privileged_ground_truth_success
             )
 
-    source = env.config.observation.source if task_state is None else task_state.source
+    source = (
+        str(b1_metrics.get("external_state_provider_source"))
+        if is_b1 and b1_metrics.get("external_state_provider_source") is not None
+        else (env.config.observation.source if task_state is None else task_state.source)
+    )
     perception_failure_reason: str | None = None
     if source == "perception":
         perception_failure_reason = (

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import traceback
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 import mujoco
 import numpy as np
@@ -12,7 +12,11 @@ from environments.config import B1Config, ControllerConfig
 from environments.panda_u_table_env import InvalidResetError, PandaUTableEnv
 from evaluation.episode_result import EpisodeResult, FailureReason
 from evaluation.perception_evaluator import EpisodeOutcome, build_episode_result
-from perception.types import DetectionResult, TaskPerceptionFrame
+from perception.state_provider import (
+    TaskStateProvider,
+    task_state_from_perception_frame,
+)
+from perception.types import TaskStateEstimate
 from sensors import ContactFeedback, ContactSensor, GripperFeedback, GripperFeedbackSensor
 
 from .fixed_dls_controller import (
@@ -39,13 +43,6 @@ class B1Stage(str, Enum):
     WITHDRAW = "withdraw"
     FINAL_VISUAL_VERIFICATION = "final_visual_verification"
     COMPLETED = "completed"
-
-
-class PerceptionFrameProvider(Protocol):
-    source: str
-
-    def observe(self) -> TaskPerceptionFrame:
-        ...
 
 
 class B1ControllerFailure(RuntimeError):
@@ -92,21 +89,49 @@ def _finite_position(position: tuple[float, float, float] | None) -> bool:
     )
 
 
+def _component_confidence(estimate: TaskStateEstimate, component: str) -> float:
+    confidence = getattr(estimate, f"{component}_confidence")
+    return float(estimate.confidence if confidence is None else confidence)
+
+
+def _component_valid(
+    estimate: TaskStateEstimate,
+    component: str,
+    minimum_confidence: float,
+) -> bool:
+    position = getattr(estimate, f"{component}_position")
+    explicit_valid = getattr(estimate, f"{component}_valid")
+    return bool(
+        (explicit_valid is not False)
+        and _finite_position(position)
+        and _component_confidence(estimate, component) >= minimum_confidence
+    )
+
+
 def _robust_positions(
-    detections: list[DetectionResult],
+    estimates: list[TaskStateEstimate],
+    component: str,
 ) -> tuple[np.ndarray, float, float]:
-    positions = np.asarray([detection.position for detection in detections], dtype=float)
+    positions = np.asarray(
+        [getattr(estimate, f"{component}_position") for estimate in estimates],
+        dtype=float,
+    )
     estimate = np.median(positions, axis=0)
     distances = np.linalg.norm(positions - estimate, axis=1)
     spread = float(np.max(distances)) if distances.size else float("inf")
-    confidence = float(np.median([detection.confidence for detection in detections]))
+    confidence = float(
+        np.median(
+            [_component_confidence(sample, component) for sample in estimates]
+        )
+    )
     return estimate, spread, confidence
 
 
 class SensorEventPickPlaceController:
-    """B1 controller driven by RGB-D, robot encoders, and binary touch proxies."""
+    """B1 controller driven by external state, encoders, and touch proxies."""
 
     controller_type = "sensor_event_b1"
+    external_state_sources = frozenset({"perception", "oracle"})
 
     def __init__(self, controller_config: ControllerConfig, b1_config: B1Config) -> None:
         self.controller_config = controller_config
@@ -129,6 +154,7 @@ class SensorEventPickPlaceController:
             ),
             metrics={
                 "controller_type": self.controller_type,
+                "external_state_provider_source": None,
                 "initial_perception_frame_count": 0,
                 "initial_valid_frame_count": 0,
                 "initial_object_position": None,
@@ -234,12 +260,25 @@ class SensorEventPickPlaceController:
             )
 
     @staticmethod
-    def _observe(provider: PerceptionFrameProvider) -> TaskPerceptionFrame:
+    def _estimate(
+        provider: TaskStateProvider,
+        minimum_confidence: float,
+    ) -> TaskStateEstimate:
         try:
-            return provider.observe()
+            estimate = getattr(provider, "estimate", None)
+            if callable(estimate):
+                return estimate()
+            observe = getattr(provider, "observe", None)
+            if callable(observe):
+                return task_state_from_perception_frame(
+                    observe(),
+                    source=provider.source,
+                    minimum_confidence=minimum_confidence,
+                )
+            raise TypeError("provider exposes neither estimate() nor observe()")
         except Exception as exc:
             raise RuntimeError(
-                f"RGB-D frame provider failed: {type(exc).__name__}: {exc}"
+                f"External-state provider failed: {type(exc).__name__}: {exc}"
             ) from exc
 
     def _sample_sensors(
@@ -425,44 +464,44 @@ class SensorEventPickPlaceController:
         self,
         env: PandaUTableEnv,
         runtime: B1Runtime,
-        provider: PerceptionFrameProvider,
+        provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> None:
-        object_detections: list[DetectionResult] = []
-        target_detections: list[DetectionResult] = []
+        object_estimates: list[TaskStateEstimate] = []
+        target_estimates: list[TaskStateEstimate] = []
         latencies: list[float] = []
         for frame_index in range(self.config.initial_perception_frames):
             try:
-                frame = self._observe(provider)
+                sample = self._estimate(
+                    provider, env.config.perception.minimum_confidence
+                )
             except RuntimeError as exc:
                 raise B1ControllerFailure(
                     FailureReason.INITIAL_PERCEPTION_FAILED, str(exc)
                 ) from exc
             runtime.metrics["initial_perception_frame_count"] += 1
-            runtime.metrics["initial_perception_timestamp"] = frame.timestamp
+            runtime.metrics["initial_perception_timestamp"] = sample.timestamp
             if runtime.metrics["camera_name"] is None:
-                runtime.metrics["camera_name"] = frame.camera_name
-                runtime.metrics["image_resolution"] = frame.image_resolution
-            latencies.append(float(frame.latency_ms))
-            object_valid = (
-                frame.object_detection.success
-                and frame.object_detection.confidence
-                >= env.config.perception.minimum_confidence
-                and _finite_position(frame.object_detection.position)
+                runtime.metrics["camera_name"] = sample.camera_name
+                runtime.metrics["image_resolution"] = sample.image_resolution
+            latencies.append(float(sample.latency_ms))
+            object_valid = _component_valid(
+                sample,
+                "object",
+                env.config.perception.minimum_confidence,
             )
-            target_valid = (
-                frame.target_detection.success
-                and frame.target_detection.confidence
-                >= env.config.perception.minimum_confidence
-                and _finite_position(frame.target_detection.position)
+            target_valid = _component_valid(
+                sample,
+                "target",
+                env.config.perception.minimum_confidence,
             )
             if object_valid and target_valid:
-                object_detections.append(frame.object_detection)
-                target_detections.append(frame.target_detection)
+                object_estimates.append(sample)
+                target_estimates.append(sample)
             if frame_index + 1 < self.config.initial_perception_frames:
                 self._step(env, runtime, step_callback)
 
-        valid_count = len(object_detections)
+        valid_count = len(object_estimates)
         runtime.metrics["initial_valid_frame_count"] = valid_count
         runtime.metrics["initial_perception_latency_ms"] = (
             float(np.sum(latencies)) if latencies else None
@@ -471,13 +510,13 @@ class SensorEventPickPlaceController:
             raise B1ControllerFailure(
                 FailureReason.INITIAL_PERCEPTION_FAILED,
                 f"Only {valid_count}/{self.config.initial_perception_frames} initial "
-                "RGB-D frames contained valid object and target detections",
+                "external-state samples contained valid object and target positions",
             )
         object_position, object_spread, object_confidence = _robust_positions(
-            object_detections
+            object_estimates, "object"
         )
         target_position, target_spread, target_confidence = _robust_positions(
-            target_detections
+            target_estimates, "target"
         )
         spread = max(object_spread, target_spread)
         runtime.metrics["initial_object_position_spread"] = object_spread
@@ -486,7 +525,7 @@ class SensorEventPickPlaceController:
         if spread > self.config.maximum_position_spread:
             raise B1ControllerFailure(
                 FailureReason.INITIAL_PERCEPTION_FAILED,
-                f"Initial RGB-D position spread {spread:.6f} m exceeds "
+                f"Initial external-state position spread {spread:.6f} m exceeds "
                 f"{self.config.maximum_position_spread:.6f} m",
                 errors={"initial_position_spread": spread},
             )
@@ -505,35 +544,36 @@ class SensorEventPickPlaceController:
         self,
         env: PandaUTableEnv,
         runtime: B1Runtime,
-        provider: PerceptionFrameProvider,
+        provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> None:
-        detections: list[DetectionResult] = []
+        estimates: list[TaskStateEstimate] = []
         latencies: list[float] = []
         for frame_index in range(self.config.pregrasp_perception_frames):
             try:
-                frame = self._observe(provider)
+                sample = self._estimate(
+                    provider, env.config.perception.minimum_confidence
+                )
             except RuntimeError as exc:
                 raise B1ControllerFailure(
                     FailureReason.PREGRASP_REACQUISITION_FAILED, str(exc)
                 ) from exc
-            detection = frame.object_detection
             runtime.metrics["pregrasp_perception_frame_count"] += 1
-            latencies.append(float(frame.latency_ms))
-            if (
-                detection.success
-                and detection.confidence >= env.config.perception.minimum_confidence
-                and _finite_position(detection.position)
+            latencies.append(float(sample.latency_ms))
+            if _component_valid(
+                sample,
+                "object",
+                env.config.perception.minimum_confidence,
             ):
-                detections.append(detection)
+                estimates.append(sample)
             if frame_index + 1 < self.config.pregrasp_perception_frames:
                 self._step(env, runtime, step_callback)
 
-        runtime.metrics["pregrasp_valid_frame_count"] = len(detections)
+        runtime.metrics["pregrasp_valid_frame_count"] = len(estimates)
         runtime.metrics["pregrasp_perception_latency_ms"] = (
             float(np.sum(latencies)) if latencies else None
         )
-        if len(detections) < self.config.minimum_valid_pregrasp_frames:
+        if len(estimates) < self.config.minimum_valid_pregrasp_frames:
             if (
                 self.config.allow_initial_object_fallback
                 and runtime.initial_object_position is not None
@@ -547,10 +587,10 @@ class SensorEventPickPlaceController:
                 return
             raise B1ControllerFailure(
                 FailureReason.PREGRASP_REACQUISITION_FAILED,
-                f"Only {len(detections)}/{self.config.pregrasp_perception_frames} "
-                "pregrasp frames contained a valid object detection",
+                f"Only {len(estimates)}/{self.config.pregrasp_perception_frames} "
+                "pregrasp samples contained a valid object position",
             )
-        corrected, spread, _ = _robust_positions(detections)
+        corrected, spread, _ = _robust_positions(estimates, "object")
         runtime.metrics["pregrasp_position_spread"] = spread
         if spread > self.config.maximum_position_spread:
             raise B1ControllerFailure(
@@ -574,14 +614,14 @@ class SensorEventPickPlaceController:
         )
 
     def _handle_scene_perception(
-        self, env: PandaUTableEnv, runtime: B1Runtime, provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         self._collect_scene_perception(env, runtime, provider, step_callback)
         return B1Stage.MOVE_TO_PREGRASP
 
     def _handle_move_to_pregrasp(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.initial_object_position is None:
@@ -597,14 +637,14 @@ class SensorEventPickPlaceController:
         return B1Stage.PREGRASP_REACQUISITION
 
     def _handle_pregrasp_reacquisition(
-        self, env: PandaUTableEnv, runtime: B1Runtime, provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         self._collect_pregrasp_object(env, runtime, provider, step_callback)
         return B1Stage.DESCEND_TO_GRASP
 
     def _handle_descend_to_grasp(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.corrected_object_position is None:
@@ -618,7 +658,7 @@ class SensorEventPickPlaceController:
         return B1Stage.CLOSE_GRIPPER
 
     def _handle_close_gripper(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         gripper, _ = self._sample_sensors(env, runtime, "open")
@@ -651,7 +691,7 @@ class SensorEventPickPlaceController:
         raise B1ControllerFailure(reason, "Gripper close timed out without bilateral contact")
 
     def _handle_grasp_candidate_check(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         deadline = float(env.data.time) + self.config.close_timeout
@@ -692,7 +732,7 @@ class SensorEventPickPlaceController:
         raise B1ControllerFailure(reason, "Grasp-candidate conditions did not hold")
 
     def _handle_trial_lift(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         observation = env.observation()
@@ -714,7 +754,7 @@ class SensorEventPickPlaceController:
         return B1Stage.GRASP_CONFIRMATION
 
     def _handle_grasp_confirmation(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         deadline = float(env.data.time) + self.config.trial_lift_timeout
@@ -740,7 +780,7 @@ class SensorEventPickPlaceController:
         )
 
     def _handle_transfer(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.corrected_object_position is None or runtime.locked_target_position is None:
@@ -762,7 +802,7 @@ class SensorEventPickPlaceController:
         return B1Stage.DESCEND_TO_PLACE
 
     def _handle_descend_to_place(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.locked_target_position is None:
@@ -787,7 +827,7 @@ class SensorEventPickPlaceController:
         return B1Stage.RELEASE
 
     def _handle_release(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         env.data.ctrl[env.gripper_actuator_id] = self.controller_config.gripper_open_control
@@ -808,7 +848,7 @@ class SensorEventPickPlaceController:
         )
 
     def _handle_withdraw(
-        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, _provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.locked_target_position is None:
@@ -824,42 +864,43 @@ class SensorEventPickPlaceController:
         return B1Stage.FINAL_VISUAL_VERIFICATION
 
     def _handle_final_visual_verification(
-        self, env: PandaUTableEnv, runtime: B1Runtime, provider: PerceptionFrameProvider,
+        self, env: PandaUTableEnv, runtime: B1Runtime, provider: TaskStateProvider,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None,
     ) -> B1Stage:
         if runtime.locked_target_position is None:
             raise RuntimeError("Locked target memory is missing")
-        detections: list[DetectionResult] = []
+        estimates: list[TaskStateEstimate] = []
         latencies: list[float] = []
         for frame_index in range(self.config.final_verification_frames):
             try:
-                frame = self._observe(provider)
+                sample = self._estimate(
+                    provider, env.config.perception.minimum_confidence
+                )
             except RuntimeError as exc:
                 raise B1ControllerFailure(
                     FailureReason.FINAL_OBJECT_NOT_FOUND, str(exc)
                 ) from exc
             runtime.metrics["final_visual_frame_count"] += 1
-            latencies.append(float(frame.latency_ms))
-            detection = frame.object_detection
-            if (
-                detection.success
-                and detection.confidence >= env.config.perception.minimum_confidence
-                and _finite_position(detection.position)
+            latencies.append(float(sample.latency_ms))
+            if _component_valid(
+                sample,
+                "object",
+                env.config.perception.minimum_confidence,
             ):
-                detections.append(detection)
+                estimates.append(sample)
             if frame_index + 1 < self.config.final_verification_frames:
                 self._step(env, runtime, step_callback)
-        runtime.metrics["final_visual_valid_frame_count"] = len(detections)
+        runtime.metrics["final_visual_valid_frame_count"] = len(estimates)
         runtime.metrics["final_visual_latency_ms"] = (
             float(np.sum(latencies)) if latencies else None
         )
-        if len(detections) < self.config.final_minimum_valid_frames:
+        if len(estimates) < self.config.final_minimum_valid_frames:
             raise B1ControllerFailure(
                 FailureReason.FINAL_OBJECT_NOT_FOUND,
-                f"Only {len(detections)}/{self.config.final_verification_frames} final "
-                "frames contained the released object",
+                f"Only {len(estimates)}/{self.config.final_verification_frames} final "
+                "samples contained the released object",
             )
-        final_object, spread, _ = _robust_positions(detections)
+        final_object, spread, _ = _robust_positions(estimates, "object")
         runtime.key_errors["final_visual_position_spread"] = spread
         xy_error = float(
             np.linalg.norm(final_object[:2] - runtime.locked_target_position[:2])
@@ -937,7 +978,7 @@ class SensorEventPickPlaceController:
         env: PandaUTableEnv,
         *,
         seed: int | None = None,
-        state_provider: PerceptionFrameProvider | None = None,
+        state_provider: TaskStateProvider | None = None,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None = None,
     ) -> EpisodeResult:
         runtime = B1Runtime()
@@ -966,16 +1007,24 @@ class SensorEventPickPlaceController:
         try:
             if env.config.observation.source != "perception":
                 raise ValueError("sensor_event_b1 requires observation source 'perception'")
-            if state_provider is None or state_provider.source != "perception":
+            if (
+                state_provider is None
+                or state_provider.source not in self.external_state_sources
+            ):
                 raise B1ControllerFailure(
                     FailureReason.INITIAL_PERCEPTION_FAILED,
-                    "sensor_event_b1 requires an explicit RGB-D frame provider",
+                    "sensor_event_b1 requires an explicit perception or oracle "
+                    "external-state provider",
                 )
-            if not hasattr(state_provider, "observe"):
+            if not (
+                callable(getattr(state_provider, "estimate", None))
+                or callable(getattr(state_provider, "observe", None))
+            ):
                 raise B1ControllerFailure(
                     FailureReason.INITIAL_PERCEPTION_FAILED,
-                    "B1 provider does not expose per-frame object/target detections",
+                    "B1 provider does not expose external-state samples",
                 )
+            runtime.metrics["external_state_provider_source"] = state_provider.source
             self._gripper_sensor = GripperFeedbackSensor(env.model, env.data)
             self._contact_sensor = ContactSensor(
                 env.model,

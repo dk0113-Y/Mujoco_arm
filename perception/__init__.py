@@ -2,10 +2,13 @@
 
 from .color_depth_detector import ColorDepthDetector
 from .overhead_rgbd import OverheadRGBDCamera
+from .oracle_state_provider import OracleExternalStateProvider
 from .state_provider import (
     PerceptionFrameProvider,
     PrivilegedStateProvider,
     RGBDPerceptionProvider,
+    TaskStateProvider,
+    task_state_from_perception_frame,
 )
 from .types import (
     CameraExtrinsics,
@@ -22,10 +25,13 @@ __all__ = [
     "ColorDepthDetector",
     "DetectionResult",
     "OverheadRGBDCamera",
+    "OracleExternalStateProvider",
     "PerceptionFrameProvider",
     "PrivilegedStateProvider",
     "RGBDFrame",
     "RGBDPerceptionProvider",
     "TaskPerceptionFrame",
+    "TaskStateProvider",
     "TaskStateEstimate",
+    "task_state_from_perception_frame",
 ]
