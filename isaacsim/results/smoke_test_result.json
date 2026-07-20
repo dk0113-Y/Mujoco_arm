@@ -1,0 +1,20 @@
+{
+  "test_name": "isaacsim_franka_pick_place_headless_smoke_test",
+  "isaac_sim_version": "5.1.0-rc.19+release.26219.9c81211b.gl",
+  "execution_mode": "headless",
+  "viewport_updates_disabled": true,
+  "cpu_thread_limit": 6,
+  "physics_device": "cpu",
+  "ik_method": "damped-least-squares",
+  "task_completed": true,
+  "completed_simulation_steps": 280,
+  "process_exit_code": 0,
+  "formal_cross_sim_validation": false,
+  "validation_scope": "Official Isaac Sim Franka example only",
+  "known_warnings": [
+    "Franka gripper DOF type mismatch warning",
+    "Deprecated omni.replicator.isaac namespace",
+    "Deprecated omni.isaac.version namespace",
+    "Deprecated warp.sim module"
+  ]
+}

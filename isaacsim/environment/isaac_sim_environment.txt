@@ -1,0 +1,26 @@
+Isaac Sim version:
+5.1.0-rc.19+release.26219.9c81211b.gl
+
+Installation type:
+Standalone binary installation
+
+Local installation path:
+C:\isaacsim
+
+Validated hardware:
+CPU: Intel Core i7-10700
+System RAM: 16 GB
+GPU: NVIDIA GeForce RTX 4060
+GPU VRAM: 8 GB
+
+Validated execution configuration:
+Execution mode: headless
+Viewport updates: disabled
+CPU thread limit: 6
+Physics device: CPU
+IK method: damped-least-squares
+
+Validation scope:
+Official Isaac Sim Franka pick-and-place smoke test only.
+No MuJoCo controller, perception module, or learned policy has yet been
+transferred to or evaluated in Isaac Sim.
