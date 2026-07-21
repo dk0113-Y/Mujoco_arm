@@ -25,7 +25,7 @@ from .fixed_dls_controller import (
     smoothstep,
     solve_pose_ik,
 )
-from .grasp_state_machine import GraspState, GraspStateMachine
+from .grasp_state_machine import GraspState, GraspStateMachine, GraspUpdate
 
 
 class B1Stage(str, Enum):
@@ -79,6 +79,50 @@ class B1Runtime:
     metrics: dict[str, Any] = field(default_factory=dict)
     key_errors: dict[str, float] = field(default_factory=dict)
     stage_durations: dict[str, float] = field(default_factory=dict)
+    diagnostic_observer: Callable[["B1DiagnosticSnapshot"], None] | None = None
+
+
+@dataclass(frozen=True)
+class B1DiagnosticSnapshot:
+    """Immutable, controller-observable telemetry for an optional passive recorder.
+
+    Object truth and diagnostic camera data are intentionally absent.  A runner-side
+    recorder may align those privileged values by ``simulation_time`` without ever
+    returning them to the controller.
+    """
+
+    event: str
+    simulation_time: float
+    stage: str
+    next_stage: str | None
+    failure_reason: str | None
+    grasp_state: str | None
+    gripper_aperture: float | None
+    gripper_aperture_velocity: float | None
+    left_finger_position: float | None
+    right_finger_position: float | None
+    commanded_state: str | None
+    left_contact: bool | None
+    right_contact: bool | None
+    bilateral_contact: bool | None
+    bilateral_contact_duration: float | None
+    candidate_aperture: float | None
+    aperture_drop: float | None
+    commanded_closing_predicate: bool | None
+    minimum_aperture_predicate: bool | None
+    contact_predicate: bool | None
+    lift_predicate: bool | None
+    aperture_retention_predicate: bool | None
+    collision_free_predicate: bool | None
+    combined_predicate: bool | None
+    candidate_hold_steps: int
+    confirmation_hold_steps: int
+    contact_loss_hold_steps: int
+    contact_loss_event_count: int
+    trial_lift_completed: bool
+    robot_table_collision: bool
+    tcp_position: tuple[float, float, float]
+    finger_positions: tuple[float, float]
 
 
 def _finite_position(position: tuple[float, float, float] | None) -> bool:
@@ -139,7 +183,11 @@ class SensorEventPickPlaceController:
         self._gripper_sensor: GripperFeedbackSensor | None = None
         self._contact_sensor: ContactSensor | None = None
 
-    def _make_runtime(self, env: PandaUTableEnv) -> B1Runtime:
+    def _make_runtime(
+        self,
+        env: PandaUTableEnv,
+        diagnostic_observer: Callable[[B1DiagnosticSnapshot], None] | None = None,
+    ) -> B1Runtime:
         observation = env.observation()
         return B1Runtime(
             stage_start_time=float(observation["simulation_time"]),
@@ -193,13 +241,128 @@ class SensorEventPickPlaceController:
                 "controller_reported_success": False,
                 "stage_durations": {},
             },
+            diagnostic_observer=diagnostic_observer,
         )
+
+    @staticmethod
+    def _emit_diagnostic(
+        env: PandaUTableEnv,
+        runtime: B1Runtime,
+        *,
+        event: str,
+        gripper: GripperFeedback | None = None,
+        contact: ContactFeedback | None = None,
+        update: GraspUpdate | None = None,
+        next_stage: B1Stage | None = None,
+        failure_reason: FailureReason | None = None,
+    ) -> None:
+        observer = runtime.diagnostic_observer
+        if observer is None:
+            return
+        try:
+            observation = env.observation()
+            monitor = runtime.grasp_monitor
+            snapshot = B1DiagnosticSnapshot(
+                event=event,
+                simulation_time=float(observation["simulation_time"]),
+                stage=runtime.stage.value,
+                next_stage=None if next_stage is None else next_stage.value,
+                failure_reason=(
+                    None if failure_reason is None else failure_reason.value
+                ),
+                grasp_state=None if monitor is None else monitor.state.value,
+                gripper_aperture=None if gripper is None else gripper.aperture,
+                gripper_aperture_velocity=(
+                    None if gripper is None else gripper.aperture_velocity
+                ),
+                left_finger_position=(
+                    None if gripper is None else gripper.left_finger_position
+                ),
+                right_finger_position=(
+                    None if gripper is None else gripper.right_finger_position
+                ),
+                commanded_state=(
+                    None if gripper is None else gripper.commanded_state
+                ),
+                left_contact=(
+                    None if contact is None else contact.left_finger_object_contact
+                ),
+                right_contact=(
+                    None if contact is None else contact.right_finger_object_contact
+                ),
+                bilateral_contact=(
+                    None if contact is None else contact.bilateral_contact
+                ),
+                bilateral_contact_duration=(
+                    None if contact is None else contact.contact_duration
+                ),
+                candidate_aperture=(
+                    None if monitor is None else monitor.candidate_aperture
+                ),
+                aperture_drop=None if update is None else update.aperture_drop,
+                commanded_closing_predicate=(
+                    None
+                    if update is None
+                    else update.commanded_closing_predicate
+                ),
+                minimum_aperture_predicate=(
+                    None if update is None else update.minimum_aperture_predicate
+                ),
+                contact_predicate=(
+                    None if update is None else update.contact_predicate
+                ),
+                lift_predicate=None if update is None else update.lift_predicate,
+                aperture_retention_predicate=(
+                    None if update is None else update.aperture_retention_predicate
+                ),
+                collision_free_predicate=(
+                    None if update is None else update.collision_free_predicate
+                ),
+                combined_predicate=(
+                    None if update is None else update.combined_predicate
+                ),
+                candidate_hold_steps=(
+                    0 if monitor is None else monitor.candidate_steps
+                ),
+                confirmation_hold_steps=(
+                    0 if monitor is None else monitor.confirmation_steps
+                ),
+                contact_loss_hold_steps=(
+                    0 if monitor is None else monitor.contact_loss_steps
+                ),
+                contact_loss_event_count=(
+                    0 if monitor is None else monitor.contact_loss_event_count
+                ),
+                trial_lift_completed=bool(
+                    runtime.metrics.get("trial_lift_completed", False)
+                ),
+                robot_table_collision=env.robot_table_collision(),
+                tcp_position=tuple(
+                    float(value) for value in observation["tcp_position"]
+                ),
+                finger_positions=tuple(
+                    float(value) for value in observation["finger_positions"]
+                ),
+            )
+            observer(snapshot)
+        except Exception:
+            # A diagnostic observer is outside the control contract.  It cannot
+            # change an action, a transition, or the episode result.  Recorder
+            # implementations retain their own errors and report them after the
+            # controller has returned.
+            return
 
     def _transition(
         self, runtime: B1Runtime, env: PandaUTableEnv, next_stage: B1Stage
     ) -> None:
         now = float(env.data.time)
         runtime.stage_durations[runtime.stage.value] = now - runtime.stage_start_time
+        self._emit_diagnostic(
+            env,
+            runtime,
+            event="stage_transition",
+            next_stage=next_stage,
+        )
         runtime.stage = next_stage
         runtime.stage_start_time = now
 
@@ -310,6 +473,14 @@ class SensorEventPickPlaceController:
         update = runtime.grasp_monitor.update_transport(gripper, contact)
         runtime.metrics["contact_loss_event_count"] = (
             runtime.grasp_monitor.contact_loss_event_count
+        )
+        self._emit_diagnostic(
+            env,
+            runtime,
+            event="transport_sample",
+            gripper=gripper,
+            contact=contact,
+            update=update,
         )
         if update.state is GraspState.GRASP_LOST:
             runtime.metrics["grasp_lost"] = True
@@ -676,6 +847,13 @@ class SensorEventPickPlaceController:
             saw_left = saw_left or contact.left_finger_object_contact
             saw_right = saw_right or contact.right_finger_object_contact
             if contact.bilateral_contact:
+                self._emit_diagnostic(
+                    env,
+                    runtime,
+                    event="close_gripper_complete",
+                    gripper=gripper,
+                    contact=contact,
+                )
                 return B1Stage.GRASP_CANDIDATE_CHECK
             if gripper.aperture <= self.config.empty_gripper_aperture_threshold:
                 runtime.metrics["gripper_aperture_after_close"] = gripper.aperture
@@ -712,6 +890,14 @@ class SensorEventPickPlaceController:
                 robot_table_collision=env.robot_table_collision(),
             )
             held = runtime.grasp_monitor.candidate_steps
+            self._emit_diagnostic(
+                env,
+                runtime,
+                event="candidate_sample",
+                gripper=gripper,
+                contact=contact,
+                update=update,
+            )
             if update.state is GraspState.GRASP_CANDIDATE:
                 runtime.metrics["gripper_aperture_after_close"] = gripper.aperture
                 runtime.metrics["grasp_candidate"] = True
@@ -771,6 +957,14 @@ class SensorEventPickPlaceController:
                 robot_table_collision=env.robot_table_collision(),
             )
             held = runtime.grasp_monitor.confirmation_steps
+            self._emit_diagnostic(
+                env,
+                runtime,
+                event="confirmation_sample",
+                gripper=gripper,
+                contact=contact,
+                update=update,
+            )
             if update.state is GraspState.GRASP_CONFIRMED:
                 runtime.metrics["grasp_confirmed"] = True
                 return B1Stage.TRANSFER
@@ -953,6 +1147,12 @@ class SensorEventPickPlaceController:
         runtime.metrics["stage_durations"] = dict(runtime.stage_durations)
         if runtime.stage is B1Stage.COMPLETED:
             runtime.metrics["stage_durations"].setdefault(B1Stage.COMPLETED.value, 0.0)
+        self._emit_diagnostic(
+            env,
+            runtime,
+            event="episode_end",
+            failure_reason=failure_reason,
+        )
         return build_episode_result(
             env,
             EpisodeOutcome(
@@ -980,11 +1180,16 @@ class SensorEventPickPlaceController:
         seed: int | None = None,
         state_provider: TaskStateProvider | None = None,
         step_callback: Callable[[PandaUTableEnv], bool | None] | None = None,
+        diagnostic_observer: Callable[[B1DiagnosticSnapshot], None] | None = None,
     ) -> EpisodeResult:
-        runtime = B1Runtime()
+        runtime = B1Runtime(diagnostic_observer=diagnostic_observer)
         try:
             env.reset(seed=seed)
-            runtime = self._make_runtime(env)
+            runtime = self._make_runtime(
+                env,
+                diagnostic_observer=diagnostic_observer,
+            )
+            self._emit_diagnostic(env, runtime, event="episode_reset")
         except InvalidResetError as exc:
             runtime.metrics = {"controller_type": self.controller_type}
             return self._build_result(

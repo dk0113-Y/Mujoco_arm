@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+import copy
 import csv
 import hashlib
 import json
@@ -1185,6 +1186,21 @@ def _build_analysis(archive: Mapping[str, Any]) -> dict[str, Any]:
         },
         "effective_overrides": archive["manifest"]["effective_overrides"],
     }
+    manual_assessment = copy.deepcopy(
+        archive["optional"].get(
+            "manual_assessment.json",
+            {
+                "assessment_kind": "structured_evidence_review",
+                "decision": {
+                    "parameter_change_recommended_now": None,
+                    "reason": "Structured evidence review has not been supplied.",
+                },
+            },
+        )
+    )
+    if manual_assessment.get("assessment_kind") == "human_evidence_review":
+        manual_assessment["assessment_kind"] = "structured_evidence_review"
+
     return {
         "analysis_schema_version": "1.0.0",
         "analysis_scope": (
@@ -1222,15 +1238,7 @@ def _build_analysis(archive: Mapping[str, Any]) -> dict[str, Any]:
         "preflight_environment": archive["optional"].get(
             "preflight_environment.json"
         ),
-        "manual_assessment": archive["optional"].get(
-            "manual_assessment.json",
-            {
-                "decision": {
-                    "parameter_change_recommended_now": None,
-                    "reason": "Manual evidence review has not been supplied.",
-                }
-            },
-        ),
+        "manual_assessment": manual_assessment,
         "analysis_limits": [
             "No Development or Held-out Test results were read.",
             "No Jacobian singular values, manipulability, jerk, or unrecorded telemetry were inferred.",

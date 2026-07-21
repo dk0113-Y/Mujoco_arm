@@ -74,6 +74,7 @@ class _EpisodeExecution:
     external_state_metrics: PerceptionMetrics | None = None
     pair_valid: bool = False
     program_error: str | None = None
+    diagnostic_recording: Any | None = None
 
 
 class _RecordingProvider:
@@ -188,6 +189,7 @@ def _execute_episode(
     pair_id: str,
     execution_index: int,
     logger: logging.Logger,
+    diagnostic_factory: Any | None = None,
 ) -> _EpisodeExecution:
     execution = _EpisodeExecution(
         pair_id=pair_id,
@@ -227,6 +229,14 @@ def _execute_episode(
         ):
             raise RuntimeError("Oracle provider must not construct a camera or Renderer")
         recording_provider = _RecordingProvider(raw_provider, env)
+        if diagnostic_factory is not None:
+            execution.diagnostic_recording = diagnostic_factory.start_episode(
+                env=env,
+                method=method,
+                seed=seed,
+                pair_id=pair_id,
+                execution_index=execution_index,
+            )
         logger.info(
             "episode_start pair=%s seed=%s method=%s execution_index=%s",
             pair_id,
@@ -234,17 +244,28 @@ def _execute_episode(
             method.method_id,
             execution_index,
         )
-        execution.result = controller.run_episode(
-            env,
-            seed=seed,
-            state_provider=recording_provider,
-        )
+        run_arguments: dict[str, Any] = {
+            "seed": seed,
+            "state_provider": recording_provider,
+        }
+        if execution.diagnostic_recording is not None:
+            run_arguments["diagnostic_observer"] = (
+                execution.diagnostic_recording.observe
+            )
+        execution.result = controller.run_episode(env, **run_arguments)
         execution.initial_robot_state = recording_provider.initial_robot_state
         execution.external_state_metrics = recording_provider.initial_metrics
         execution.fingerprint = EpisodeFingerprint.from_episode_result(
             execution.result
         )
         execution.program_error = _result_program_error(execution.result)
+        if execution.diagnostic_recording is not None:
+            execution.diagnostic_recording.finish(
+                result=execution.result,
+                fingerprint=execution.fingerprint,
+                initial_robot_state=execution.initial_robot_state,
+                external_state_metrics=execution.external_state_metrics,
+            )
         logger.info(
             "episode_end pair=%s method=%s stage=%s controller_success=%s "
             "ground_truth_success=%s failure=%s",
@@ -264,6 +285,13 @@ def _execute_episode(
             method.method_id,
         )
     finally:
+        if execution.diagnostic_recording is not None:
+            try:
+                execution.diagnostic_recording.close()
+            except Exception:
+                cleanup_errors.append(
+                    "diagnostic recorder close failed:\n" + traceback.format_exc()
+                )
         if raw_provider is not None:
             try:
                 raw_provider.close()

@@ -83,6 +83,13 @@ class GraspStateMachineTests(unittest.TestCase):
             trial_lift_completed=False,
         )
         self.assertEqual(update.state, GraspState.GRASP_CANDIDATE)
+        self.assertFalse(update.lift_predicate)
+        self.assertTrue(update.contact_predicate)
+        self.assertTrue(update.minimum_aperture_predicate)
+        self.assertTrue(update.aperture_retention_predicate)
+        self.assertTrue(update.collision_free_predicate)
+        self.assertFalse(update.combined_predicate)
+        self.assertEqual(update.hold_steps, 0)
         for _ in range(2):
             update = state_machine.update_confirmation(
                 gripper(0.05),
@@ -90,6 +97,41 @@ class GraspStateMachineTests(unittest.TestCase):
                 trial_lift_completed=True,
             )
         self.assertEqual(update.state, GraspState.GRASP_CONFIRMED)
+        self.assertTrue(update.combined_predicate)
+        self.assertEqual(update.hold_steps, 2)
+
+    def test_confirmation_snapshot_reports_exact_threshold_and_collision_failures(self) -> None:
+        state_machine = monitor()
+        state_machine.begin_closing()
+        for _ in range(3):
+            candidate = state_machine.update_candidate(
+                gripper(0.05), contact(True, True)
+            )
+        self.assertTrue(candidate.commanded_closing_predicate)
+        self.assertTrue(candidate.minimum_aperture_predicate)
+        self.assertTrue(candidate.contact_predicate)
+        self.assertTrue(candidate.collision_free_predicate)
+        self.assertTrue(candidate.combined_predicate)
+
+        threshold = state_machine.update_confirmation(
+            gripper(0.047),
+            contact(True, True),
+            trial_lift_completed=True,
+        )
+        self.assertAlmostEqual(threshold.aperture_drop, 0.003)
+        self.assertFalse(threshold.aperture_retention_predicate)
+        self.assertFalse(threshold.combined_predicate)
+        self.assertEqual(threshold.hold_steps, 0)
+
+        collision = state_machine.update_confirmation(
+            gripper(0.05),
+            contact(True, True),
+            trial_lift_completed=True,
+            robot_table_collision=True,
+        )
+        self.assertFalse(collision.collision_free_predicate)
+        self.assertFalse(collision.combined_predicate)
+        self.assertEqual(collision.hold_steps, 0)
 
     def test_confirmation_rejects_aperture_below_configured_minimum(self) -> None:
         state_machine = monitor()

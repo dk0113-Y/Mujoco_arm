@@ -22,6 +22,15 @@ class GraspUpdate:
     bilateral_missing: bool = False
     sudden_further_closure: bool = False
     contact_loss_event: bool = False
+    aperture_drop: float | None = None
+    commanded_closing_predicate: bool | None = None
+    minimum_aperture_predicate: bool | None = None
+    contact_predicate: bool | None = None
+    lift_predicate: bool | None = None
+    aperture_retention_predicate: bool | None = None
+    collision_free_predicate: bool | None = None
+    combined_predicate: bool | None = None
+    hold_steps: int = 0
 
 
 @dataclass
@@ -61,7 +70,19 @@ class GraspStateMachine:
             raise RuntimeError(f"Candidate evidence is invalid in state {self.state.value}")
         if gripper.aperture <= self.empty_aperture_threshold:
             self.candidate_steps = 0
-            return GraspUpdate(self.state, empty_closure=True)
+            return GraspUpdate(
+                self.state,
+                empty_closure=True,
+                bilateral_missing=not contact.bilateral_contact,
+                commanded_closing_predicate=gripper.commanded_state == "closing",
+                minimum_aperture_predicate=(
+                    gripper.aperture > self.minimum_grasp_aperture
+                ),
+                contact_predicate=contact.bilateral_contact,
+                collision_free_predicate=not robot_table_collision,
+                combined_predicate=False,
+                hold_steps=0,
+            )
         bilateral_missing = not contact.bilateral_contact
         valid = bool(
             gripper.commanded_state == "closing"
@@ -74,7 +95,18 @@ class GraspStateMachine:
             self.state = GraspState.GRASP_CANDIDATE
             self.candidate_aperture = float(gripper.aperture)
             self._last_bilateral = True
-        return GraspUpdate(self.state, bilateral_missing=bilateral_missing)
+        return GraspUpdate(
+            self.state,
+            bilateral_missing=bilateral_missing,
+            commanded_closing_predicate=gripper.commanded_state == "closing",
+            minimum_aperture_predicate=(
+                gripper.aperture > self.minimum_grasp_aperture
+            ),
+            contact_predicate=contact.bilateral_contact,
+            collision_free_predicate=not robot_table_collision,
+            combined_predicate=valid,
+            hold_steps=self.candidate_steps,
+        )
 
     def update_confirmation(
         self,
@@ -108,6 +140,16 @@ class GraspStateMachine:
             self.state,
             bilateral_missing=not contact.bilateral_contact,
             sudden_further_closure=sudden_closure,
+            aperture_drop=float(aperture_drop),
+            minimum_aperture_predicate=(
+                gripper.aperture > self.minimum_grasp_aperture
+            ),
+            contact_predicate=contact.bilateral_contact,
+            lift_predicate=trial_lift_completed,
+            aperture_retention_predicate=not sudden_closure,
+            collision_free_predicate=not robot_table_collision,
+            combined_predicate=valid,
+            hold_steps=self.confirmation_steps,
         )
 
     def update_transport(
@@ -141,6 +183,10 @@ class GraspStateMachine:
             bilateral_missing=not contact.bilateral_contact,
             sudden_further_closure=sudden_closure,
             contact_loss_event=contact_loss_event,
+            aperture_drop=float(aperture_drop),
+            contact_predicate=contact.bilateral_contact,
+            aperture_retention_predicate=not sudden_closure,
+            hold_steps=self.contact_loss_steps,
         )
 
     def mark_released(self) -> None:

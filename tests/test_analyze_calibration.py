@@ -320,6 +320,17 @@ def _fixture(root: Path) -> Path:
         log_lines.append(f"INFO episode_start execution={index}")
         log_lines.append(f"INFO episode_end execution={index}")
     (output / "run.log").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+    _write_json(
+        output / "manual_assessment.json",
+        {
+            "assessment_kind": "human_evidence_review",
+            "decision": {
+                "parameter_change_recommended_now": False,
+                "reason": "Structured evidence does not justify a change.",
+            },
+            "evidence": {"reviewed_seed_ids": [1000, 1015]},
+        },
+    )
     return output
 
 
@@ -327,15 +338,28 @@ class CalibrationAnalysisTests(unittest.TestCase):
     def test_generates_b1_only_outputs_and_preserves_run_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = _fixture(Path(directory))
+            input_files = (*REQUIRED_INPUT_FILES, "manual_assessment.json")
             before = {
-                name: _sha256(output / name) for name in REQUIRED_INPUT_FILES
+                name: _sha256(output / name) for name in input_files
             }
             analysis = analyze_calibration(output)
-            after = {
-                name: _sha256(output / name) for name in REQUIRED_INPUT_FILES
-            }
+            after = {name: _sha256(output / name) for name in input_files}
 
             self.assertEqual(before, after)
+            self.assertEqual(
+                analysis["manual_assessment"]["assessment_kind"],
+                "structured_evidence_review",
+            )
+            self.assertEqual(
+                analysis["manual_assessment"]["evidence"]["reviewed_seed_ids"],
+                [1000, 1015],
+            )
+            source_assessment = json.loads(
+                (output / "manual_assessment.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                source_assessment["assessment_kind"], "human_evidence_review"
+            )
             self.assertEqual(
                 analysis["b1_core_metrics"]["safe_task_success_count"], 15
             )
@@ -358,11 +382,28 @@ class CalibrationAnalysisTests(unittest.TestCase):
                 (output / "calibration_analysis.json").read_text(encoding="utf-8")
             )
             self.assertEqual(loaded["integrity"]["status"], "PASS")
+            self.assertEqual(
+                loaded["manual_assessment"]["assessment_kind"],
+                "structured_evidence_review",
+            )
             report = (output / "calibration_round_0_report.md").read_text(
                 encoding="utf-8"
             )
             self.assertIn("未修改参数", report)
             self.assertNotIn("NaN", report)
+
+    def test_missing_manual_assessment_uses_structured_review_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = _fixture(Path(directory))
+            (output / "manual_assessment.json").unlink()
+
+            analysis = analyze_calibration(output)
+
+            self.assertIn("manual_assessment", analysis)
+            self.assertEqual(
+                analysis["manual_assessment"]["assessment_kind"],
+                "structured_evidence_review",
+            )
 
     def test_rejects_invalid_pair_program_error_missing_seed_and_nan(self) -> None:
         mutations = {
