@@ -1,6 +1,6 @@
 [protocol]
 protocol_id = "evaluation_protocol"
-protocol_version = "1.0.0"
+protocol_version = "1.0.1"
 environment_version = "u_table_benchmark0_829ec17"
 metrics_schema_version = "1.0.0"
 
@@ -255,8 +255,6 @@ allowed_parameters = [
   "b1.final_observation_offset",
   "b1.final_verification_frames",
   "b1.final_minimum_valid_frames",
-  "b1.final_place_xy_tolerance",
-  "b1.final_place_height_tolerance",
 ]
 
 [freeze]

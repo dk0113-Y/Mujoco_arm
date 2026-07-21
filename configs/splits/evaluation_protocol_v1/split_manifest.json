@@ -254,11 +254,11 @@
   "generation_date": "2026-07-21",
   "generator_seed": 20260721,
   "generator_version": "splitmix64_stratified_coverage_v1",
-  "manifest_sha256": "35a6d7f8b63d828f8f3a31698522955003e49f48e298101318388f241635dbc4",
+  "manifest_sha256": "992d0f03b6ce0bd92d1630c7d3b9753e6468003e1db089e26b415dcf6add4be9",
   "protocol_config_path": "configs/protocols/evaluation_protocol_v1.toml",
-  "protocol_config_sha256": "6d482f5c83c75cce5d452356921f00ca69bda5d9441c9f760fca56e3f647320e",
+  "protocol_config_sha256": "7a47be9ddf3851b06c84068ec29030d5bf25ebf60f37057d55371823b07e10bd",
   "protocol_id": "evaluation_protocol",
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.0.1",
   "selection_algorithm": "SplitMix64 candidate ordering; environment-reset metadata only; nine region-pair coverage followed by balanced pair counts and greedy mass/friction/distance-bin coverage",
   "split_id": "evaluation_protocol_v1"
 }

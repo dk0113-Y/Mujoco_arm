@@ -18,7 +18,7 @@ class EvaluationProtocolConfigTests(unittest.TestCase):
     def test_protocol_identity_and_random_task_modes(self) -> None:
         protocol = self.protocol
         self.assertEqual(protocol.protocol_id, "evaluation_protocol")
-        self.assertEqual(protocol.protocol_version, "1.0.0")
+        self.assertEqual(protocol.protocol_version, "1.0.1")
         self.assertEqual(protocol.metrics_schema_version, "1.0.0")
         self.assertEqual(protocol.split_id, "evaluation_protocol_v1")
         self.assertEqual(protocol.environment.pick.mode, "random")

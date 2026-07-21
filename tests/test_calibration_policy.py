@@ -30,6 +30,16 @@ class CalibrationPolicyTests(unittest.TestCase):
             any(parameter.path.startswith(forbidden) for parameter in catalog)
         )
 
+    def test_success_tolerances_are_protocol_protected(self) -> None:
+        self.assertNotIn("b1.final_place_xy_tolerance", self.protocol.allowed_calibration_parameters)
+        self.assertNotIn("b1.final_place_height_tolerance", self.protocol.allowed_calibration_parameters)
+        self.assertEqual(self.protocol.raw["success"]["placement_xy_tolerance"], 0.06)
+        self.assertEqual(self.protocol.raw["success"]["placement_height_tolerance"], 0.03)
+        self.assertEqual(self.protocol.environment.b1.final_place_xy_tolerance, 0.06)
+        self.assertEqual(self.protocol.environment.b1.final_place_height_tolerance, 0.03)
+        self.assertEqual(self.protocol.protocol_version, "1.0.1")
+        self.assertEqual(self.protocol.metrics_schema_version, "1.0.0")
+
     def test_development_test_tuning_and_automatic_freeze_are_forbidden(self) -> None:
         self.assertFalse(self.protocol.splits["development"].allows_b1_tuning)
         self.assertFalse(self.protocol.splits["held_out_test"].allows_b1_tuning)

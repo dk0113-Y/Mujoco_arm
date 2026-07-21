@@ -68,7 +68,7 @@ class ProtocolBenchmarkIntegrationTests(unittest.TestCase):
             code_commit="c" * 40,
         )
         self.assertEqual(row["protocol_id"], "evaluation_protocol")
-        self.assertEqual(row["protocol_version"], "1.0.0")
+        self.assertEqual(row["protocol_version"], "1.0.1")
         self.assertEqual(row["split_name"], "calibration_smoke")
         self.assertTrue(row["placement_success"])
         self.assertTrue(row["safe_task_success"])

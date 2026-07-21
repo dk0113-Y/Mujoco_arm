@@ -10,7 +10,7 @@
 
 ## 2. 正式任务配置与几何核对
 
-正式配置是 `configs/protocols/evaluation_protocol_v1.toml`，可独立保存、计算 SHA-256 和归档；通用 `configs/u_table.toml` 保持 fixed 默认值。协议标识为 `evaluation_protocol/1.0.0`，metrics schema 为 `1.0.0`，split ID 为 `evaluation_protocol_v1`。正式任务强制 `pick.mode=random`、`place.mode=random`、`physics.mode=random`，episode timeout 为 35.0 s。
+正式配置是 `configs/protocols/evaluation_protocol_v1.toml`，可独立保存、计算 SHA-256 和归档；通用 `configs/u_table.toml` 保持 fixed 默认值。协议标识为 `evaluation_protocol/1.0.1`，metrics schema 为 `1.0.0`，split ID 为 `evaluation_protocol_v1`。正式任务强制 `pick.mode=random`、`place.mode=random`、`physics.mode=random`，episode timeout 为 35.0 s。
 
 下表来自 `scenes/panda_u_table_scene.xml` 经 MuJoCo 编译后的 geom 中心/半尺寸，并应用 `edge_margin=0.055 m`：
 
@@ -36,6 +36,8 @@
 - `privileged_ground_truth_success=true`，即最终物体中心 XY 误差不超过 0.06 m，高度误差不超过 0.03 m；
 - `final_stage` 是声明的 B1 阶段；
 - `simulation_time <= 35.0 s`。
+
+最终 XY/高度成功容差是协议保护的评价条件：`b1.final_place_xy_tolerance=0.06 m` 和 `b1.final_place_height_tolerance=0.03 m` 不属于 Calibration allowlist，Calibration 不得通过放宽它们改变成功判定或抬高指标。
 
 placement 不要求零碰撞。因此最终放置成功但发生过机器人—工作台碰撞时，`placement_success=true`。
 

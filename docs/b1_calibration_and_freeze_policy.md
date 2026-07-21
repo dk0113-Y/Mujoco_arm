@@ -70,10 +70,8 @@ Calibration 只在 `calibration_v1.txt` 的全部 30 个 seed 上，用可诊断
 | b1.final_observation_offset | [-0.08,0,0] | m | 有限 3-vector，norm<=0.20 | 最终观察位偏置 | M,V | 否 |
 | b1.final_verification_frames | 5 | frame | 正整数 | 最终验证帧数 | V | 否 |
 | b1.final_minimum_valid_frames | 3 | frame | 1..final frames | 最终最少有效帧 | V | 否 |
-| b1.final_place_xy_tolerance | 0.06 | m | >0 | controller 与独立真值 XY 容差 | V | 否 |
-| b1.final_place_height_tolerance | 0.03 | m | >0 | controller 与独立真值高度容差 | V | 否 |
 
-`controller.waypoint_tolerance`、`minimum_lift_height`、旧 fixed-time `gripper_duration/motion_hold_time` 等未被当前 SensorEvent B1 决策路径使用，不进入 v1 allowlist。若要重新启用或改变其职责，先升级 baseline/protocol，而不是在 Calibration 中暗调。
+`b1.final_place_xy_tolerance=0.06 m` 与 `b1.final_place_height_tolerance=0.03 m` 是 Evaluation Protocol v1.0.1 固定的成功评价参数，不可 Calibration；不得通过放宽它们改变成功判定或抬高指标。`controller.waypoint_tolerance`、`minimum_lift_height`、旧 fixed-time `gripper_duration/motion_hold_time` 等未被当前 SensorEvent B1 决策路径使用，不进入 v1 allowlist。若要重新启用或改变其职责，先升级 baseline/protocol，而不是在 Calibration 中暗调。
 
 ## 3. 禁止调整内容
 
