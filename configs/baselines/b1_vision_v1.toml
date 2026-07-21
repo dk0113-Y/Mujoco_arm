@@ -1,0 +1,121 @@
+[environment]
+seed = 42
+
+[workspace]
+object_half_size = 0.025
+base_clearance_radius = 0.20
+spawn_clearance = 0.001
+target_site_offset = 0.002
+max_sampling_attempts = 200
+
+[pick]
+mode = "random"
+fixed_position = [0.50, 0.12, 0.246]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+
+[place]
+mode = "random"
+fixed_position = [0.50, -0.20, 0.222]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+minimum_xy_distance = 0.18
+
+[physics]
+mode = "random"
+fixed_mass = 0.10
+mass_range = [0.05, 0.20]
+fixed_friction = [1.20, 0.01, 0.001]
+friction_min = [0.80, 0.005, 0.0005]
+friction_max = [1.40, 0.02, 0.002]
+
+[simulation]
+settle_time = 1.0
+episode_timeout = 35.0
+frame_skip = 1
+viewer = false
+
+[observation]
+source = "perception"
+
+[camera]
+name = "overhead_rgbd"
+width = 512
+height = 512
+position = [0.70, 0.0, 2.0]
+x_axis_world = [0.96949834, 0.0, -0.24509789]
+y_axis_world = [0.0, 1.0, 0.0]
+fovy = 60.0
+
+[perception]
+minimum_object_pixels = 30
+minimum_target_pixels = 80
+minimum_confidence = 0.50
+minimum_depth = 0.05
+maximum_depth = 5.0
+object_min_rgb = [70.0, 0.0, 0.0]
+object_dominance_ratio = 1.70
+target_min_rgb = [0.0, 55.0, 0.0]
+target_dominance_ratio = 1.25
+object_world_z_range = [0.20, 0.80]
+target_world_z_range = [0.20, 0.24]
+object_surface_to_center = 0.025
+target_surface_to_center = 0.002
+
+[controller]
+type = "sensor_event_b1"
+ik_max_iterations = 500
+ik_damping = 0.05
+ik_step_gain = 0.70
+ik_max_joint_step = 0.08
+ik_position_tolerance = 0.002
+orientation_tolerance = 0.03
+orientation_weight = 0.30
+waypoint_tolerance = 0.012
+waypoint_height = 0.18
+grasp_z_offset = 0.005
+lift_height = 0.20
+minimum_lift_height = 0.08
+place_xy_tolerance = 0.06
+place_height_tolerance = 0.03
+approach_duration = 4.0
+descent_duration = 3.0
+gripper_duration = 1.5
+lift_duration = 3.0
+transfer_duration = 4.0
+withdraw_duration = 3.0
+motion_hold_time = 0.6
+gripper_open_control = 255.0
+gripper_close_control = 0.0
+
+[b1]
+initial_perception_frames = 5
+minimum_valid_perception_frames = 3
+pregrasp_perception_frames = 3
+minimum_valid_pregrasp_frames = 2
+pregrasp_observation_offset = [-0.08, 0.0, 0.0]
+maximum_position_spread = 0.02
+maximum_pregrasp_correction = 0.08
+allow_initial_object_fallback = false
+arrival_position_tolerance = 0.015
+arrival_orientation_tolerance = 0.05
+settled_joint_velocity_threshold = 0.15
+arrival_hold_steps = 15
+motion_timeout = 7.0
+close_timeout = 2.5
+empty_gripper_aperture_threshold = 0.004
+minimum_grasp_aperture = 0.008
+contact_debounce_steps = 3
+bilateral_contact_hold_steps = 10
+trial_lift_distance = 0.04
+trial_lift_timeout = 4.0
+grasp_confirmation_hold_steps = 15
+contact_loss_hold_steps = 25
+aperture_drop_threshold = 0.003
+release_aperture_threshold = 0.07
+release_timeout = 2.5
+final_observation_offset = [-0.08, 0.0, 0.0]
+final_verification_frames = 5
+final_minimum_valid_frames = 3
+final_place_xy_tolerance = 0.06
+final_place_height_tolerance = 0.03
