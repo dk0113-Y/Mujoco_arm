@@ -1,0 +1,269 @@
+[protocol]
+protocol_id = "evaluation_protocol"
+protocol_version = "1.0.0"
+environment_version = "u_table_benchmark0_829ec17"
+metrics_schema_version = "1.0.0"
+
+[environment]
+seed = 42
+
+[workspace]
+object_half_size = 0.025
+base_clearance_radius = 0.20
+spawn_clearance = 0.001
+target_site_offset = 0.002
+max_sampling_attempts = 200
+
+[pick]
+mode = "random"
+fixed_position = [0.50, 0.12, 0.246]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+
+[place]
+mode = "random"
+fixed_position = [0.50, -0.20, 0.222]
+allowed_regions = ["front", "left", "right"]
+edge_margin = 0.055
+minimum_xy_distance = 0.18
+
+[physics]
+mode = "random"
+fixed_mass = 0.10
+mass_range = [0.05, 0.20]
+fixed_friction = [1.20, 0.01, 0.001]
+friction_min = [0.80, 0.005, 0.0005]
+friction_max = [1.40, 0.02, 0.002]
+
+[simulation]
+settle_time = 1.0
+episode_timeout = 35.0
+frame_skip = 1
+viewer = false
+
+[observation]
+source = "perception"
+
+[camera]
+name = "overhead_rgbd"
+width = 512
+height = 512
+position = [0.70, 0.0, 2.0]
+x_axis_world = [0.96949834, 0.0, -0.24509789]
+y_axis_world = [0.0, 1.0, 0.0]
+fovy = 60.0
+
+[perception]
+minimum_object_pixels = 30
+minimum_target_pixels = 80
+minimum_confidence = 0.50
+minimum_depth = 0.05
+maximum_depth = 5.0
+object_min_rgb = [70.0, 0.0, 0.0]
+object_dominance_ratio = 1.70
+target_min_rgb = [0.0, 55.0, 0.0]
+target_dominance_ratio = 1.25
+object_world_z_range = [0.20, 0.80]
+target_world_z_range = [0.20, 0.24]
+object_surface_to_center = 0.025
+target_surface_to_center = 0.002
+
+[controller]
+type = "sensor_event_b1"
+ik_max_iterations = 500
+ik_damping = 0.05
+ik_step_gain = 0.70
+ik_max_joint_step = 0.08
+ik_position_tolerance = 0.002
+orientation_tolerance = 0.03
+orientation_weight = 0.30
+waypoint_tolerance = 0.012
+waypoint_height = 0.18
+grasp_z_offset = 0.005
+lift_height = 0.20
+minimum_lift_height = 0.08
+place_xy_tolerance = 0.06
+place_height_tolerance = 0.03
+approach_duration = 4.0
+descent_duration = 3.0
+gripper_duration = 1.5
+lift_duration = 3.0
+transfer_duration = 4.0
+withdraw_duration = 3.0
+motion_hold_time = 0.6
+gripper_open_control = 255.0
+gripper_close_control = 0.0
+
+[b1]
+initial_perception_frames = 5
+minimum_valid_perception_frames = 3
+pregrasp_perception_frames = 3
+minimum_valid_pregrasp_frames = 2
+pregrasp_observation_offset = [-0.08, 0.0, 0.0]
+maximum_position_spread = 0.02
+maximum_pregrasp_correction = 0.08
+allow_initial_object_fallback = false
+arrival_position_tolerance = 0.015
+arrival_orientation_tolerance = 0.05
+settled_joint_velocity_threshold = 0.15
+arrival_hold_steps = 15
+motion_timeout = 7.0
+close_timeout = 2.5
+empty_gripper_aperture_threshold = 0.004
+minimum_grasp_aperture = 0.008
+contact_debounce_steps = 3
+bilateral_contact_hold_steps = 10
+trial_lift_distance = 0.04
+trial_lift_timeout = 4.0
+grasp_confirmation_hold_steps = 15
+contact_loss_hold_steps = 25
+aperture_drop_threshold = 0.003
+release_aperture_threshold = 0.07
+release_timeout = 2.5
+final_observation_offset = [-0.08, 0.0, 0.0]
+final_verification_frames = 5
+final_minimum_valid_frames = 3
+final_place_xy_tolerance = 0.06
+final_place_height_tolerance = 0.03
+
+[success]
+placement_xy_tolerance = 0.06
+placement_height_tolerance = 0.03
+placement_xy_tolerance_source = "b1.final_place_xy_tolerance"
+placement_height_tolerance_source = "b1.final_place_height_tolerance"
+requires_release = true
+requires_structured_end = true
+requires_completion_within_timeout = true
+released_stages = ["withdraw", "final_visual_verification", "completed"]
+declared_stages = [
+  "scene_perception", "move_to_pregrasp", "pregrasp_reacquisition",
+  "descend_to_grasp", "close_gripper", "grasp_candidate_check",
+  "trial_lift", "grasp_confirmation", "transfer", "descend_to_place",
+  "release", "withdraw", "final_visual_verification", "completed",
+]
+
+[collision]
+rule_id = "robot_table_contact_episode_v1"
+rule = "Any new robot-geom/U-table-geom contact pair increments collision_count; collision_episode is collision_count > 0."
+safe_success_requires_zero = true
+
+[program_error]
+rule_id = "program_error_v1"
+rule = "Unexpected exception, resource creation/cleanup failure, invalid pair, missing result, serialization failure, or unrecoverable runner failure remains a program error."
+categories = [
+  "unexpected_exception", "resource_creation_failure", "resource_cleanup_failure",
+  "invalid_pair", "missing_result", "serialization_failure", "runner_failure",
+]
+
+[metrics]
+core_metrics = [
+  "safe_task_success_rate",
+  "first_attempt_placement_success_rate",
+  "collision_episode_rate",
+  "safe_successful_simulation_time",
+  "unexplained_failure_rate",
+]
+simulation_time_is_cycle_proxy = true
+wall_clock_is_primary_cycle_metric = false
+
+[splits]
+split_id = "evaluation_protocol_v1"
+manifest_path = "configs/splits/evaluation_protocol_v1/split_manifest.json"
+calibration_path = "configs/splits/evaluation_protocol_v1/calibration_v1.txt"
+calibration_size = 30
+development_path = "configs/splits/evaluation_protocol_v1/development_v1.txt"
+development_size = 60
+held_out_test_path = "configs/splits/evaluation_protocol_v1/held_out_test_v1.txt"
+held_out_test_size = 100
+calibration_smoke_path = "configs/splits/evaluation_protocol_v1/calibration_smoke.txt"
+calibration_smoke_size = 2
+
+[split_generation]
+generator_version = "splitmix64_stratified_coverage_v1"
+generator_seed = 20260721
+generation_date = "2026-07-21"
+candidate_start = 0
+candidate_stop = 4096
+candidate_count = 512
+uses_environment_reset_metadata_only = true
+uses_controller_outcomes = false
+uses_ik_filter = false
+
+[calibration]
+policy_id = "b1_calibration_policy_v1"
+baseline_template_path = "configs/baselines/b1_vision_calibration_template.toml"
+baseline_frozen = false
+automatic_parameter_search = false
+development_allows_b1_tuning = false
+held_out_allows_b1_tuning = false
+allowed_parameters = [
+  "perception.minimum_object_pixels",
+  "perception.minimum_target_pixels",
+  "perception.minimum_confidence",
+  "perception.minimum_depth",
+  "perception.maximum_depth",
+  "perception.object_min_rgb",
+  "perception.object_dominance_ratio",
+  "perception.target_min_rgb",
+  "perception.target_dominance_ratio",
+  "perception.object_world_z_range",
+  "perception.target_world_z_range",
+  "perception.object_surface_to_center",
+  "perception.target_surface_to_center",
+  "controller.ik_max_iterations",
+  "controller.ik_damping",
+  "controller.ik_step_gain",
+  "controller.ik_max_joint_step",
+  "controller.ik_position_tolerance",
+  "controller.orientation_tolerance",
+  "controller.orientation_weight",
+  "controller.waypoint_height",
+  "controller.grasp_z_offset",
+  "controller.lift_height",
+  "controller.approach_duration",
+  "controller.descent_duration",
+  "controller.lift_duration",
+  "controller.transfer_duration",
+  "controller.withdraw_duration",
+  "controller.gripper_open_control",
+  "controller.gripper_close_control",
+  "b1.initial_perception_frames",
+  "b1.minimum_valid_perception_frames",
+  "b1.pregrasp_perception_frames",
+  "b1.minimum_valid_pregrasp_frames",
+  "b1.pregrasp_observation_offset",
+  "b1.maximum_position_spread",
+  "b1.maximum_pregrasp_correction",
+  "b1.allow_initial_object_fallback",
+  "b1.arrival_position_tolerance",
+  "b1.arrival_orientation_tolerance",
+  "b1.settled_joint_velocity_threshold",
+  "b1.arrival_hold_steps",
+  "b1.motion_timeout",
+  "b1.close_timeout",
+  "b1.empty_gripper_aperture_threshold",
+  "b1.minimum_grasp_aperture",
+  "b1.contact_debounce_steps",
+  "b1.bilateral_contact_hold_steps",
+  "b1.trial_lift_distance",
+  "b1.trial_lift_timeout",
+  "b1.grasp_confirmation_hold_steps",
+  "b1.contact_loss_hold_steps",
+  "b1.aperture_drop_threshold",
+  "b1.release_aperture_threshold",
+  "b1.release_timeout",
+  "b1.final_observation_offset",
+  "b1.final_verification_frames",
+  "b1.final_minimum_valid_frames",
+  "b1.final_place_xy_tolerance",
+  "b1.final_place_height_tolerance",
+]
+
+[freeze]
+policy_id = "b1_vision_freeze_v1"
+requires_all_calibration_seeds = true
+requires_config_hash = true
+requires_code_commit = true
+requires_regression_tests = true
+behavior_change_requires_new_baseline_version = true
+user_controls_git_tag = true

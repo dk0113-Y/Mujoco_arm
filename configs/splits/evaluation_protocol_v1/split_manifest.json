@@ -1,0 +1,264 @@
+{
+  "candidate_count": 512,
+  "candidate_illegal_sample_count": 0,
+  "candidate_start": 0,
+  "candidate_stop": 4096,
+  "controller_outcomes_used": false,
+  "coverage": {
+    "calibration": {
+      "friction": [
+        {
+          "count": 30,
+          "maximum": 1.370566939310594,
+          "mean": 1.119693052364288,
+          "median": 1.1158826088069183,
+          "minimum": 0.8217983712237154
+        },
+        {
+          "count": 30,
+          "maximum": 0.019991742168477423,
+          "mean": 0.013266607033460763,
+          "median": 0.012502430380342041,
+          "minimum": 0.005330386949585066
+        },
+        {
+          "count": 30,
+          "maximum": 0.001959544402142807,
+          "mean": 0.001253108290241591,
+          "median": 0.0012542243051307863,
+          "minimum": 0.0005832633271131151
+        }
+      ],
+      "illegal_reason_counts": {},
+      "illegal_sample_count": 0,
+      "illegal_seeds": [],
+      "legal_sample_count": 30,
+      "mass": {
+        "count": 30,
+        "maximum": 0.192583317280262,
+        "mean": 0.12034474112975234,
+        "median": 0.1211865068033049,
+        "minimum": 0.052531280253282076
+      },
+      "pick_place_distance": {
+        "count": 30,
+        "maximum": 1.3575282003798677,
+        "mean": 0.7016399959552183,
+        "median": 0.6051853765655658,
+        "minimum": 0.19155078578286494
+      },
+      "pick_region_counts": {
+        "front": 11,
+        "left": 10,
+        "right": 9
+      },
+      "place_region_counts": {
+        "front": 11,
+        "left": 10,
+        "right": 9
+      },
+      "region_pair_counts": {
+        "front->front": 4,
+        "front->left": 4,
+        "front->right": 3,
+        "left->front": 4,
+        "left->left": 3,
+        "left->right": 3,
+        "right->front": 3,
+        "right->left": 3,
+        "right->right": 3
+      },
+      "requested_seed_count": 30,
+      "same_cross_counts": {
+        "cross_region": 20,
+        "same_region": 10
+      },
+      "settled_object_table_penetration": {
+        "count": 30,
+        "maximum": 0.0002696429177879711,
+        "mean": 0.00016576742103530014,
+        "median": 0.00014868042489943334,
+        "minimum": 0.00010775542021632112
+      }
+    },
+    "development": {
+      "friction": [
+        {
+          "count": 60,
+          "maximum": 1.3968697444935603,
+          "mean": 1.1145230579093335,
+          "median": 1.1164268140874314,
+          "minimum": 0.8001086639161284
+        },
+        {
+          "count": 60,
+          "maximum": 0.019947783909633397,
+          "mean": 0.013894011309321825,
+          "median": 0.014265679614409773,
+          "minimum": 0.005612922541770556
+        },
+        {
+          "count": 60,
+          "maximum": 0.0019913027965783943,
+          "mean": 0.0012381075710902122,
+          "median": 0.0012083310424820639,
+          "minimum": 0.0005361109785048576
+        }
+      ],
+      "illegal_reason_counts": {},
+      "illegal_sample_count": 0,
+      "illegal_seeds": [],
+      "legal_sample_count": 60,
+      "mass": {
+        "count": 60,
+        "maximum": 0.19264326123954056,
+        "mean": 0.1286625651194584,
+        "median": 0.1336464521132033,
+        "minimum": 0.05737901575958034
+      },
+      "pick_place_distance": {
+        "count": 60,
+        "maximum": 1.3915979791479964,
+        "mean": 0.7538883675696711,
+        "median": 0.7735605460214343,
+        "minimum": 0.2110489548404207
+      },
+      "pick_region_counts": {
+        "front": 20,
+        "left": 20,
+        "right": 20
+      },
+      "place_region_counts": {
+        "front": 21,
+        "left": 19,
+        "right": 20
+      },
+      "region_pair_counts": {
+        "front->front": 7,
+        "front->left": 6,
+        "front->right": 7,
+        "left->front": 7,
+        "left->left": 6,
+        "left->right": 7,
+        "right->front": 7,
+        "right->left": 7,
+        "right->right": 6
+      },
+      "requested_seed_count": 60,
+      "same_cross_counts": {
+        "cross_region": 41,
+        "same_region": 19
+      },
+      "settled_object_table_penetration": {
+        "count": 60,
+        "maximum": 0.00028417746686706935,
+        "mean": 0.0001653064372802641,
+        "median": 0.00014889758385663865,
+        "minimum": 0.00010775542021632112
+      }
+    },
+    "held_out_test": {
+      "friction": [
+        {
+          "count": 100,
+          "maximum": 1.3998615037504973,
+          "mean": 1.0767155034907756,
+          "median": 1.0645509633258268,
+          "minimum": 0.8158564488640273
+        },
+        {
+          "count": 100,
+          "maximum": 0.019834766264743994,
+          "mean": 0.012574731343283735,
+          "median": 0.012744020831880932,
+          "minimum": 0.005078967764270962
+        },
+        {
+          "count": 100,
+          "maximum": 0.00191036549154803,
+          "mean": 0.0011682155081123836,
+          "median": 0.0011513588096858365,
+          "minimum": 0.0005115133071596251
+        }
+      ],
+      "illegal_reason_counts": {},
+      "illegal_sample_count": 0,
+      "illegal_seeds": [],
+      "legal_sample_count": 100,
+      "mass": {
+        "count": 100,
+        "maximum": 0.19986979132708194,
+        "mean": 0.1327273434203965,
+        "median": 0.13738249458364546,
+        "minimum": 0.05141914046271868
+      },
+      "pick_place_distance": {
+        "count": 100,
+        "maximum": 1.3354644797535906,
+        "mean": 0.7461179028621631,
+        "median": 0.7381708062140532,
+        "minimum": 0.18234696911802742
+      },
+      "pick_region_counts": {
+        "front": 33,
+        "left": 34,
+        "right": 33
+      },
+      "place_region_counts": {
+        "front": 34,
+        "left": 33,
+        "right": 33
+      },
+      "region_pair_counts": {
+        "front->front": 11,
+        "front->left": 11,
+        "front->right": 11,
+        "left->front": 12,
+        "left->left": 11,
+        "left->right": 11,
+        "right->front": 11,
+        "right->left": 11,
+        "right->right": 11
+      },
+      "requested_seed_count": 100,
+      "same_cross_counts": {
+        "cross_region": 67,
+        "same_region": 33
+      },
+      "settled_object_table_penetration": {
+        "count": 100,
+        "maximum": 0.00028584861691691166,
+        "mean": 0.00015457492280648022,
+        "median": 0.0001294296018256591,
+        "minimum": 0.00010775542021632112
+      }
+    }
+  },
+  "files": {
+    "calibration": {
+      "path": "configs/splits/evaluation_protocol_v1/calibration_v1.txt",
+      "seed_count": 30,
+      "sha256": "1a92bfc8f5dfce78883bc92b7e4c70f66491eb8c067a41c88fd011506505ec7e"
+    },
+    "development": {
+      "path": "configs/splits/evaluation_protocol_v1/development_v1.txt",
+      "seed_count": 60,
+      "sha256": "677ecd23f9e689b971fa7340f7d34d674f07dfca19bfa9cd4634598d497b98d6"
+    },
+    "held_out_test": {
+      "path": "configs/splits/evaluation_protocol_v1/held_out_test_v1.txt",
+      "seed_count": 100,
+      "sha256": "56858fbed6ef16a6979902763832c8962d11ad27ba07a92a0baa5d73c40e1d36"
+    }
+  },
+  "generation_date": "2026-07-21",
+  "generator_seed": 20260721,
+  "generator_version": "splitmix64_stratified_coverage_v1",
+  "manifest_sha256": "35a6d7f8b63d828f8f3a31698522955003e49f48e298101318388f241635dbc4",
+  "protocol_config_path": "configs/protocols/evaluation_protocol_v1.toml",
+  "protocol_config_sha256": "6d482f5c83c75cce5d452356921f00ca69bda5d9441c9f760fca56e3f647320e",
+  "protocol_id": "evaluation_protocol",
+  "protocol_version": "1.0.0",
+  "selection_algorithm": "SplitMix64 candidate ordering; environment-reset metadata only; nine region-pair coverage followed by balanced pair counts and greedy mass/friction/distance-bin coverage",
+  "split_id": "evaluation_protocol_v1"
+}

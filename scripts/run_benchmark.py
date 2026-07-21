@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from benchmark import BenchmarkRunError, FORMAL_METHOD_IDS, run_benchmark
+from evaluation.protocol import load_protocol
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -23,6 +24,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--config",
         type=Path,
         default=PROJECT_ROOT / "configs" / "u_table.toml",
+    )
+    parser.add_argument(
+        "--protocol",
+        type=Path,
+        help="Optional Evaluation Protocol config that adds versioned metrics.",
+    )
+    parser.add_argument(
+        "--split-name",
+        choices=("calibration", "development", "held_out_test", "calibration_smoke"),
+        help="Required with --protocol; seed path must match this registered split.",
     )
     parser.add_argument(
         "--methods",
@@ -60,6 +71,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if (args.protocol is None) != (args.split_name is None):
+        print("--protocol and --split-name must be supplied together", file=sys.stderr)
+        return 2
+    protocol = None if args.protocol is None else load_protocol(args.protocol)
     command_arguments = list(sys.argv[1:] if argv is None else argv)
     command = [sys.executable, str(Path(__file__).resolve()), *command_arguments]
     try:
@@ -72,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
             continue_on_error=args.continue_on_error,
             require_clean_git=args.require_clean_git,
             command=command,
+            protocol=protocol,
+            split_name=args.split_name,
         )
     except Exception as exc:
         print(f"Benchmark-0 error: {exc}", file=sys.stderr)

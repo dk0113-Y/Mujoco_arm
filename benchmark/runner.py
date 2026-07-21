@@ -12,6 +12,11 @@ import numpy as np
 
 from environments import EnvConfig, PandaUTableEnv, load_config
 from evaluation import EpisodeResult, FailureReason, evaluate_task_state
+from evaluation.production_metrics import (
+    build_production_metrics,
+    derive_episode_protocol_fields,
+)
+from evaluation.protocol import ProtocolConfig, validate_baseline_compatibility
 from perception.types import PerceptionMetrics
 
 from .manifest import repository_metadata, runtime_metadata, sha256_file
@@ -323,7 +328,14 @@ def _validate_execution_pair(
     return None
 
 
-def _episode_row(execution: _EpisodeExecution) -> dict[str, Any]:
+def _episode_row(
+    execution: _EpisodeExecution,
+    *,
+    protocol: ProtocolConfig | None = None,
+    split_name: str | None = None,
+    config_sha256: str | None = None,
+    code_commit: str | None = None,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "benchmark_name": BENCHMARK_NAME,
         "pair_id": execution.pair_id,
@@ -337,7 +349,19 @@ def _episode_row(execution: _EpisodeExecution) -> dict[str, Any]:
         "program_error": execution.program_error,
     }
     if execution.result is not None:
-        row.update(execution.result.to_flat_dict())
+        result_data = execution.result.to_dict()
+        key_errors = result_data.pop("key_errors") or {}
+        stage_durations = result_data.pop("stage_durations") or {}
+        row.update(result_data)
+        row.update(
+            {f"key_error.{name}": value for name, value in key_errors.items()}
+        )
+        row.update(
+            {
+                f"stage_duration.{name}": value
+                for name, value in stage_durations.items()
+            }
+        )
         if execution.external_state_metrics is not None:
             row["object_position_error"] = (
                 execution.external_state_metrics.object_3d_error
@@ -345,6 +369,15 @@ def _episode_row(execution: _EpisodeExecution) -> dict[str, Any]:
             row["target_position_error"] = (
                 execution.external_state_metrics.target_3d_error
             )
+    if protocol is not None:
+        row.update(
+            {
+                "split_name": split_name,
+                "config_sha256": config_sha256,
+                "code_commit": code_commit,
+            }
+        )
+        row.update(derive_episode_protocol_fields(row, protocol))
     return row
 
 
@@ -454,6 +487,10 @@ def run_benchmark(
     require_clean_git: bool = False,
     command: Sequence[str] | None = None,
     fingerprint_atol: float = DEFAULT_FINGERPRINT_ATOL,
+    protocol: ProtocolConfig | None = None,
+    split_name: str | None = None,
+    calibration_run: bool = False,
+    baseline_frozen: bool = False,
 ) -> BenchmarkRunResult:
     config_path = Path(config_path).expanduser().resolve()
     seeds_path = Path(seeds_file).expanduser().resolve()
@@ -461,6 +498,20 @@ def run_benchmark(
     methods = resolve_methods(list(method_ids))
     seeds = load_seeds(seeds_path)
     config, overrides = _effective_config(config_path)
+    if protocol is not None:
+        if split_name not in protocol.splits:
+            raise ValueError(f"Unknown protocol split name: {split_name!r}")
+        expected_seed_path = protocol.splits[str(split_name)].path.resolve()
+        if seeds_path != expected_seed_path:
+            raise ValueError(
+                f"Seed file does not match protocol split {split_name}: {seeds_path}"
+            )
+        validate_baseline_compatibility(protocol, config)
+        if baseline_frozen:
+            raise ValueError(
+                "Evaluation Protocol v1 calibration/benchmark tooling does not "
+                "declare a baseline frozen"
+            )
     assert_static_fairness(methods, config)
     repository = repository_metadata(PROJECT_ROOT)
     if require_clean_git and repository["git_dirty"]:
@@ -469,8 +520,11 @@ def run_benchmark(
         )
     _prepare_output_dir(output_path, overwrite)
     shutil.copyfile(config_path, output_path / "config_snapshot.toml")
+    if protocol is not None:
+        shutil.copyfile(protocol.path, output_path / "protocol_snapshot.toml")
     logger, log_handler = _logger_for(output_path)
     start_time = _utc_now()
+    config_digest = sha256_file(config_path)
     manifest: dict[str, Any] = {
         "benchmark_name": BENCHMARK_NAME,
         "benchmark_schema_version": BENCHMARK_SCHEMA_VERSION,
@@ -480,7 +534,7 @@ def run_benchmark(
         **repository,
         **runtime_metadata(),
         "config_path": str(config_path),
-        "config_sha256": sha256_file(config_path),
+        "config_sha256": config_digest,
         "config_snapshot_path": str(output_path / "config_snapshot.toml"),
         "effective_overrides": overrides,
         "seed_file_path": str(seeds_path),
@@ -492,8 +546,26 @@ def run_benchmark(
         "invalid_pairs": 0,
         "unhandled_errors": 0,
         "unhandled_error_details": [],
-        "pilot": True,
+        "pilot": protocol is None,
     }
+    if protocol is not None:
+        manifest.update(
+            {
+                "protocol_id": protocol.protocol_id,
+                "protocol_version": protocol.protocol_version,
+                "metrics_schema_version": protocol.metrics_schema_version,
+                "protocol_config_path": str(protocol.path),
+                "protocol_config_sha256": protocol.sha256,
+                "protocol_snapshot_path": str(
+                    output_path / "protocol_snapshot.toml"
+                ),
+                "split_id": protocol.split_id,
+                "split_name": split_name,
+                "calibration_run": calibration_run,
+                "baseline_frozen": baseline_frozen,
+                "automatic_parameter_search": False,
+            }
+        )
     executions: list[_EpisodeExecution] = []
     pair_rows: list[dict[str, Any]] = []
     fatal_error: str | None = None
@@ -505,7 +577,7 @@ def run_benchmark(
                 "seeds": seeds,
                 "seed_count": len(seeds),
                 "duplicates_present": False,
-                "pilot": True,
+                "pilot": protocol is None,
             },
         )
         logger.info(
@@ -571,7 +643,16 @@ def run_benchmark(
         logger.exception("benchmark_program_error")
     finally:
         try:
-            episode_rows = [_episode_row(execution) for execution in executions]
+            episode_rows = [
+                _episode_row(
+                    execution,
+                    protocol=protocol,
+                    split_name=split_name,
+                    config_sha256=config_digest,
+                    code_commit=str(repository.get("git_commit") or ""),
+                )
+                for execution in executions
+            ]
             write_csv(
                 output_path / "episodes.csv",
                 episode_rows,
@@ -597,6 +678,27 @@ def run_benchmark(
                 requested_episode_count=len(seeds),
             )
             write_json(output_path / "summary.json", summary)
+            if protocol is not None:
+                production_metrics = build_production_metrics(
+                    episode_rows,
+                    pair_rows,
+                    protocol=protocol,
+                )
+                production_metrics["methods"] = {
+                    method.method_id: build_production_metrics(
+                        [
+                            row
+                            for row in episode_rows
+                            if row.get("method_id") == method.method_id
+                        ],
+                        protocol=protocol,
+                    )
+                    for method in methods
+                }
+                write_json(
+                    output_path / "production_metrics.json",
+                    production_metrics,
+                )
         except Exception:
             output_error = traceback.format_exc()
             manifest["unhandled_errors"] += 1
