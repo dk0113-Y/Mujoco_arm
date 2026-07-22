@@ -91,12 +91,19 @@ class _EpisodeExecution:
 class _RecordingProvider:
     """Record robot-only reset state while returning provider estimates unchanged."""
 
-    def __init__(self, provider: Any, env: PandaUTableEnv) -> None:
+    def __init__(
+        self,
+        provider: Any,
+        env: PandaUTableEnv,
+        diagnostic_recording: Any | None = None,
+    ) -> None:
         self.provider = provider
         self.env = env
+        self.diagnostic_recording = diagnostic_recording
         self.source = provider.source
         self.initial_robot_state: tuple[float, ...] | None = None
         self.initial_metrics: PerceptionMetrics | None = None
+        self.estimate_call_count = 0
 
     def estimate(self):
         if self.initial_robot_state is None:
@@ -114,10 +121,27 @@ class _RecordingProvider:
                 raise RuntimeError("Initial robot state contains NaN or Inf")
             self.initial_robot_state = tuple(float(value) for value in values)
         estimate = self.provider.estimate()
+        self.estimate_call_count += 1
         if self.initial_metrics is None:
             # This independent label calculation is recorded only by the
             # benchmark wrapper; the estimate returned to control is unchanged.
             self.initial_metrics = evaluate_task_state(self.env, estimate)
+        if self.diagnostic_recording is not None:
+            try:
+                observe_provider = getattr(
+                    self.diagnostic_recording, "observe_provider", None
+                )
+                if callable(observe_provider):
+                    observe_provider(
+                        estimate=estimate,
+                        raw_provider=self.provider,
+                        call_index=self.estimate_call_count - 1,
+                    )
+            except Exception:
+                # Provider diagnostics are outside the control contract.  The
+                # recorder retains its own errors and reports them after the
+                # controller returns; no callback result can alter the sample.
+                pass
         return estimate
 
 
@@ -239,7 +263,6 @@ def _execute_episode(
             raw_provider, "camera"
         ):
             raise RuntimeError("Oracle provider must not construct a camera or Renderer")
-        recording_provider = _RecordingProvider(raw_provider, env)
         if diagnostic_factory is not None:
             execution.diagnostic_recording = diagnostic_factory.start_episode(
                 env=env,
@@ -248,6 +271,11 @@ def _execute_episode(
                 pair_id=pair_id,
                 execution_index=execution_index,
             )
+        recording_provider = _RecordingProvider(
+            raw_provider,
+            env,
+            diagnostic_recording=execution.diagnostic_recording,
+        )
         logger.info(
             "episode_start pair=%s seed=%s method=%s execution_index=%s",
             pair_id,
@@ -276,6 +304,7 @@ def _execute_episode(
                 fingerprint=execution.fingerprint,
                 initial_robot_state=execution.initial_robot_state,
                 external_state_metrics=execution.external_state_metrics,
+                provider_call_count=recording_provider.estimate_call_count,
             )
         logger.info(
             "episode_end pair=%s method=%s stage=%s controller_success=%s "

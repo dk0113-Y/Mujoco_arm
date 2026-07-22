@@ -844,6 +844,13 @@ class SensorEventPickPlaceController:
         while float(env.data.time) <= deadline + 1e-12:
             self._step(env, runtime, step_callback)
             gripper, contact = self._sample_sensors(env, runtime, "closing")
+            self._emit_diagnostic(
+                env,
+                runtime,
+                event="close_sample",
+                gripper=gripper,
+                contact=contact,
+            )
             saw_left = saw_left or contact.left_finger_object_contact
             saw_right = saw_right or contact.right_finger_object_contact
             if contact.bilateral_contact:
@@ -1030,6 +1037,12 @@ class SensorEventPickPlaceController:
         while float(env.data.time) <= deadline + 1e-12:
             self._step(env, runtime, step_callback)
             gripper, _ = self._sample_sensors(env, runtime, "opening")
+            self._emit_diagnostic(
+                env,
+                runtime,
+                event="release_sample",
+                gripper=gripper,
+            )
             held = held + 1 if gripper.aperture >= self.config.release_aperture_threshold else 0
             if held >= self.config.arrival_hold_steps:
                 if runtime.grasp_monitor is None:

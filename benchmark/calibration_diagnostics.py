@@ -227,11 +227,13 @@ class EpisodeDiagnosticRecorder:
     _TRACE_EVENTS = frozenset(
         {
             "episode_reset",
+            "close_sample",
             "close_gripper_complete",
             "candidate_sample",
             "transport_sample",
             "confirmation_sample",
             "stage_transition",
+            "release_sample",
             "episode_end",
         }
     )
@@ -541,6 +543,7 @@ class EpisodeDiagnosticRecorder:
         fingerprint: Any,
         initial_robot_state: tuple[float, ...] | None,
         external_state_metrics: Any,
+        provider_call_count: int | None = None,
     ) -> None:
         self.result = result
         self.fingerprint = fingerprint
