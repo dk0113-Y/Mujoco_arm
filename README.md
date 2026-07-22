@@ -299,11 +299,32 @@ C:\ai_workspace\venvs\Mujoco_arm\Scripts\python.exe scripts\run_calibration.py -
 
 Calibration runner 只运行和记录，不自动改参数、重写 TOML、挑选 seed 或宣布冻结；manifest 固定写 `calibration_run=true`、`baseline_frozen=false`。协议模式另存 `protocol_snapshot.toml` 和 `production_metrics.json`，episode CSV 增加 protocol/split、placement/safe/first-attempt、collision/unexplained、区域组合、距离、config hash 和 commit；原 Benchmark-0 字段与公平性保持不变。
 
+### Development D0 专用入口
+
+Development 只通过 `scripts/run_development.py` 使用登记的 protocol、Development 60 split、冻结配置与 freeze manifest。入口固定按 `b0_oracle`、`b1_vision` 顺序运行，拒绝 Calibration、Held-out、自定义 seed/config、无效冻结状态、hash mismatch、配置覆盖及非空正式输出目录。正式运行前先在 outcome 不可见的条件下固定 strata：
+
+```powershell
+& C:\ai_workspace\venvs\Mujoco_arm\Scripts\python.exe scripts\build_development_strata.py `
+  --protocol configs\protocols\evaluation_protocol_v1.toml `
+  --seeds-file configs\splits\evaluation_protocol_v1\development_v1.txt `
+  --output outputs\development\b1_vision_v1\development_strata.json
+
+& C:\ai_workspace\venvs\Mujoco_arm\Scripts\python.exe scripts\run_development.py `
+  --protocol configs\protocols\evaluation_protocol_v1.toml `
+  --frozen-config configs\baselines\b1_vision_v1.toml `
+  --seeds-file configs\splits\evaluation_protocol_v1\development_v1.txt `
+  --freeze-manifest configs\baselines\b1_vision_v1_manifest.json `
+  --output-dir outputs\development\b1_vision_v1\development_60 `
+  --require-clean-git
+```
+
+完成 60/60 pair 后，`scripts/analyze_development.py` 只读取正式归档、strata、freeze manifest 和独立 Calibration 参考，生成 Development 报告、分组分析、B2 问题族证据矩阵与未执行的 D0.5 候选。分析器不会运行 controller、创建 Renderer、读取 Held-out、调参、重放 episode 或实现 B2，并会证明 10 个正式原始文件在分析前后 hash 未变化。
+
 ## 当前能力边界
 
 当前只有单个固定尺寸红色立方体、单个静态绿色目标和单台固定俯视相机。`b1_vision` 是传统事件控制基线，不包含连续视觉伺服、自适应 DLS、零空间优化、学习算法、神经网络视觉、形状随机化、多物体、多目标或动态目标；感知失败不会回退 Oracle 或 privileged。`b0_oracle` 只是“零误差外部视觉状态”的 benchmark/debug 上界，不是可部署传感方案，也不能替代真实抓取、掉落和碰撞判断。simulated tactile proxy 不能替代真实硬件触觉标定。
 
-B1-Vision v1 的 Freeze Verification 已通过，状态为 `verified_pending_user_commit`。正式 Calibration 为 17/30 safe success、0/30 collision episode；主要限制是固定抓取几何和接触敏感性。Development 60 与 Held-out Test 尚未运行，也没有实现 B2、提供最终泛化结论或生产部署声明。下一阶段是 Development 60 和 B2 设计；用户审查后再决定最终 commit/tag。
+B1-Vision v1 的 Freeze Verification 已通过；冻结包已提交于 `129036f8eacc4d24aa892d7510c51dec33407c47`，状态为 `committed_pending_tag`，尚未创建 Git tag。正式 Calibration 为 17/30 safe success、0/30 collision episode；主要限制是固定抓取几何和接触敏感性。Development 60 与 Held-out Test 尚未运行，也没有实现 B2、提供最终泛化结论或生产部署声明。下一阶段是 Development 60 和 B2 设计；是否创建 tag 继续由用户审查决定。
 
 ## 测试
 

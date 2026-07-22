@@ -2,7 +2,7 @@
 
 ## 1. 冻结结论与定义
 
-B1-Vision v1 Freeze Verification 在 commit `bf6a07945f396f7b98f5c24cf94d1a97b8dc7f9d` 上通过。当前状态是 `verified_pending_user_commit`：行为配置已验证并生成冻结包，但本任务没有自动 commit、tag 或 push，`final_git_commit` 保持 `null`。
+B1-Vision v1 Freeze Verification 在 commit `bf6a07945f396f7b98f5c24cf94d1a97b8dc7f9d` 上通过。冻结包已由 commit `129036f8eacc4d24aa892d7510c51dec33407c47` 提交，当前状态是 `committed_pending_tag`。尚未创建 tag 或 push；tag 是否创建继续由用户决定。
 
 B1-Vision v1 是后续 B2、残差学习和独立强化学习方法的固定工程基线。
 
@@ -21,6 +21,7 @@ B0-Oracle 与 B1-Vision 使用完全相同的 controller class、Fixed-DLS、控
 | 项目 | 值 |
 |---|---|
 | 验证 commit | `bf6a07945f396f7b98f5c24cf94d1a97b8dc7f9d` (`Codex Round 0.5`) |
+| 冻结包 commit | `129036f8eacc4d24aa892d7510c51dec33407c47` (`Codex B1-Vision v1 Freeze Verification and Finalization`) |
 | 验证分支 | `freeze/b1-vision-v1` |
 | submodule | `mujoco_menagerie@71f066ad0be9cd271f7ed58c030243ef157af9f4` |
 | 源模板 | `configs/baselines/b1_vision_calibration_template.toml` |
@@ -110,5 +111,4 @@ B1 failure reason 为 success 17、grasp_not_confirmed 7、initial_perception_fa
 - 未运行或查看 Held-out Test。
 - 未实现 B2。
 - 冻结不代表生产部署、工业安全认证、真机验证、泛化证明或最终算法排名。
-- 用户最终 commit/tag 尚未完成；应先审查配置、manifest、报告、比较工具和测试，再决定最终 commit 与 tag。
-
+- 冻结包 commit 已完成；Git tag 尚未创建，继续由用户审查后决定。

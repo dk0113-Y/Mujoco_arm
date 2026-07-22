@@ -96,7 +96,7 @@ class FrozenConfigTests(unittest.TestCase):
                 getattr(frozen, name), getattr(protocol.environment, name), name
             )
 
-    def test_manifest_has_required_pending_commit_state(self) -> None:
+    def test_manifest_has_required_committed_pending_tag_state(self) -> None:
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         required = {
             "artifact_schema_version",
@@ -105,6 +105,9 @@ class FrozenConfigTests(unittest.TestCase):
             "freeze_state",
             "behavior_frozen",
             "final_git_commit",
+            "freeze_package_commit",
+            "tag_name",
+            "tag_created",
             "verified_behavior_commit",
             "frozen_config_path",
             "frozen_config_sha256",
@@ -124,10 +127,18 @@ class FrozenConfigTests(unittest.TestCase):
         }
         self.assertFalse(required - set(manifest))
         self.assertEqual(manifest["baseline_id"], "b1_vision_v1")
-        self.assertEqual(manifest["freeze_state"], "verified_pending_user_commit")
+        self.assertEqual(manifest["freeze_state"], "committed_pending_tag")
         self.assertTrue(manifest["behavior_frozen"])
         self.assertTrue(manifest["behavior_config_equivalent"])
-        self.assertIsNone(manifest["final_git_commit"])
+        self.assertEqual(
+            manifest["final_git_commit"],
+            "129036f8eacc4d24aa892d7510c51dec33407c47",
+        )
+        self.assertEqual(
+            manifest["freeze_package_commit"], manifest["final_git_commit"]
+        )
+        self.assertIsNone(manifest["tag_name"])
+        self.assertFalse(manifest["tag_created"])
         self.assertEqual(
             manifest["verified_behavior_commit"],
             "bf6a07945f396f7b98f5c24cf94d1a97b8dc7f9d",

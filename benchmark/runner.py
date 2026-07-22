@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import shutil
 import traceback
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -46,6 +46,17 @@ from .summary import build_summary, failure_counts_rows
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+FROZEN_BASELINE_MANIFEST_FIELDS = frozenset(
+    {
+        "frozen_baseline_id",
+        "frozen_config_path",
+        "frozen_config_sha256",
+        "freeze_manifest_path",
+        "freeze_manifest_sha256",
+        "verified_behavior_commit",
+        "freeze_package_commit",
+    }
+)
 
 
 class BenchmarkRunError(RuntimeError):
@@ -519,6 +530,8 @@ def run_benchmark(
     split_name: str | None = None,
     calibration_run: bool = False,
     baseline_frozen: bool = False,
+    development_run: bool = False,
+    frozen_baseline_metadata: Mapping[str, Any] | None = None,
 ) -> BenchmarkRunResult:
     config_path = Path(config_path).expanduser().resolve()
     seeds_path = Path(seeds_file).expanduser().resolve()
@@ -535,10 +548,44 @@ def run_benchmark(
                 f"Seed file does not match protocol split {split_name}: {seeds_path}"
             )
         validate_baseline_compatibility(protocol, config)
-        if baseline_frozen:
+        if split_name in {"calibration", "calibration_smoke"}:
+            if not calibration_run:
+                raise ValueError(
+                    "Calibration protocol splits must declare calibration_run=true"
+                )
+            if baseline_frozen or development_run:
+                raise ValueError(
+                    "Calibration protocol splits cannot declare a frozen or "
+                    "Development baseline identity"
+                )
+        elif split_name == "development":
+            if calibration_run or not baseline_frozen or not development_run:
+                raise ValueError(
+                    "Development must declare development_run=true, "
+                    "baseline_frozen=true, and calibration_run=false"
+                )
+        elif split_name == "held_out_test":
             raise ValueError(
-                "Evaluation Protocol v1 calibration/benchmark tooling does not "
-                "declare a baseline frozen"
+                "Held-out Test execution is forbidden by the current Development D0 tooling"
+            )
+        if development_run:
+            if split_name != "development":
+                raise ValueError("development_run=true is legal only for Development")
+            metadata = dict(frozen_baseline_metadata or {})
+            if set(metadata) != FROZEN_BASELINE_MANIFEST_FIELDS:
+                missing = sorted(FROZEN_BASELINE_MANIFEST_FIELDS - set(metadata))
+                extra = sorted(set(metadata) - FROZEN_BASELINE_MANIFEST_FIELDS)
+                raise ValueError(
+                    "Frozen baseline metadata is incomplete or unexpected; "
+                    f"missing={missing}, extra={extra}"
+                )
+            if Path(str(metadata["frozen_config_path"])).resolve() != config_path:
+                raise ValueError("Frozen baseline metadata config path mismatch")
+            if metadata["frozen_config_sha256"] != sha256_file(config_path):
+                raise ValueError("Frozen baseline metadata config SHA-256 mismatch")
+        elif frozen_baseline_metadata is not None:
+            raise ValueError(
+                "Frozen baseline metadata is legal only for a Development run"
             )
     assert_static_fairness(methods, config)
     repository = repository_metadata(PROJECT_ROOT)
@@ -590,10 +637,16 @@ def run_benchmark(
                 "split_id": protocol.split_id,
                 "split_name": split_name,
                 "calibration_run": calibration_run,
+                "development_run": development_run,
                 "baseline_frozen": baseline_frozen,
                 "automatic_parameter_search": False,
+                "held_out_test_run": False,
+                "diagnostics_enabled": False,
+                "visualization_enabled": False,
             }
         )
+        if development_run:
+            manifest.update(dict(frozen_baseline_metadata or {}))
     executions: list[_EpisodeExecution] = []
     pair_rows: list[dict[str, Any]] = []
     fatal_error: str | None = None
