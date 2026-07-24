@@ -299,8 +299,126 @@ all
 
 ## 12. 干净提交验证结果
 
-本节在 feature commit 上完成正式 clean JI/CI 复跑后填写。最终性能结论只
-引用 `git_dirty=false`、`git_commit` 与当时 HEAD 一致的原始产物。
+feature commit：
+
+```text
+57311847a53d5f3be823e10466fd3e621e763e69
+feat: add isolated Panda Cartesian impedance baseline
+```
+
+固定环境为 Python 3.12.10、MuJoCo 3.10.0、Menagerie
+`71f066ad0be9cd271f7ed58c030243ef157af9f4`。feature commit 干净状态下：
+
+```text
+Ran 259 tests in 76.008s
+OK
+```
+
+其中原测试 222 项、新增 CI 测试 37 项。
+
+### 12.1 Jacobian 和 frame 数值验证
+
+在正式初始姿态、中心差分步长 `1e-6 rad` 下：
+
+```text
+maximum translation finite-difference error = 1.2240441993e-10 m/rad
+maximum rotation finite-difference error    = 1.1102230246e-10 rad/rad
+J@dq vs MuJoCo site twist maximum error     = 2.7755575616e-17
+virtual-power identity absolute error       = 0
+```
+
+七列平移误差：
+
+```text
+[2.5844e-11, 1.2240e-10, 4.9159e-11, 8.4997e-11,
+ 8.7279e-12, 5.5023e-11, 5.5511e-17]
+```
+
+七列旋转误差：
+
+```text
+[1.1102e-10, 8.2509e-11, 6.2355e-11, 8.2509e-11,
+ 6.2210e-11, 8.2509e-11, 4.8667e-11]
+```
+
+三轴平移、三轴旋转的 initial wrench/torque sign 和预热后的短时闭环误差
+下降测试全部通过。
+
+### 12.2 CI 正式结果
+
+feature commit 原始产物：
+
+```text
+outputs/control/ci_baseline_v1/run_manifest.json
+outputs/control/ci_baseline_v1/episode_metrics.csv
+outputs/control/ci_baseline_v1/timeseries.csv
+outputs/control/ci_baseline_v1/summary.json
+outputs/control/ci_baseline_v1/config_snapshot.toml
+```
+
+manifest 的 `git_commit` 为 feature commit、`git_dirty=false`，Python、
+MuJoCo、Menagerie、model/config hash 均完整。11 个 episode、18,500 个
+control period、37.0 s simulation 全部严格解析且有限。
+
+| episode | position norm RMSE (m) | orientation RMSE (rad) | max position (m) | max orientation (rad) | peak joint torque (N·m) | rate incidences | min singular | max condition | result |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| hold pose 1 | 0.006148 | 0.003420 | 0.013483 | 0.005629 | 31.293 | 27 | 0.145005 | 12.8073 | completed |
+| hold pose 2 | 0.004416 | 0.007020 | 0.009649 | 0.009851 | 22.629 | 21 | 0.170380 | 10.8583 | completed |
+| hold pose 3 | 0.009768 | 0.014272 | 0.019639 | 0.019459 | 39.867 | 30 | 0.117825 | 15.8082 | completed |
+| translation world X | 0.007201 | 0.012374 | 0.011704 | 0.021841 | 31.879 | 27 | 0.136375 | 13.6716 | completed |
+| translation world Y | 0.005141 | 0.005900 | 0.014445 | 0.009210 | 31.295 | 27 | 0.144884 | 12.8186 | completed |
+| translation world Z | 0.007230 | 0.011462 | 0.019420 | 0.020065 | 31.790 | 27 | 0.138662 | 13.4065 | completed |
+| orientation world X | 0.004723 | 0.010922 | 0.013841 | 0.016377 | 31.301 | 27 | 0.145196 | 12.7961 | completed |
+| orientation world Y | 0.008031 | 0.021299 | 0.013976 | 0.037212 | 31.136 | 27 | 0.136916 | 13.5775 | completed |
+| orientation world Z | 0.004626 | 0.008311 | 0.013512 | 0.012789 | 31.293 | 27 | 0.145010 | 12.8070 | completed |
+| straight line | 0.008367 | 0.020739 | 0.013499 | 0.031518 | 33.104 | 27 | 0.117743 | 15.9305 | completed |
+| circle world XY | 0.010283 | 0.016021 | 0.016625 | 0.030504 | 31.293 | 27 | 0.145059 | 12.8025 | completed |
+
+全局结果：
+
+```text
+completed episodes                    = 11 / 11
+terminated episodes                   = 0
+finite-value status                   = true
+unexpected-contact episodes/rows      = 0 / 0
+torque saturation incidences          = 0
+torque-rate-limit incidences           = 294
+maximum episode rate-limit ratio       = 0.4286%
+maximum position-error norm            = 0.0196386 m
+maximum orientation error              = 0.0372123 rad
+maximum / largest RMS task force       = 3.18429 / 1.41382 N
+maximum / largest RMS task moment      = 0.511477 / 0.283233 N·m
+maximum absolute joint torque          = 39.8674 N·m
+maximum joint velocity                 = 0.310946 rad/s
+minimum observed Jacobian rank         = 6
+minimum singular value                 = 0.117743
+maximum condition number               = 15.9305
+maximum logged twist consistency error = 5.55112e-17
+final torque vs actuator force error   = 0
+```
+
+所有 rate limiting 都是短暂 incidence，主要来自 reset 后 physical gravity
+compensation 从零 torque 建立；最大比例 0.4286%，没有达到 `0.25 s` sustained
+termination gate。没有 absolute saturation、rank/condition gate、安全终止
+或意外接触。
+
+### 12.3 JI 回归
+
+feature commit 原始产物：
+
+```text
+outputs/control/ji_baseline_after_ci/run_manifest.json
+```
+
+manifest 的 `git_commit` 为 feature commit、`git_dirty=false`。13 个 JI
+episode 中 12 个 completed；zero-torque 仍在 `0.144 s` 按预期以
+`joint_velocity_limit` 结构化终止。15,822 行全部有限，torque saturation
+为 0，rate-limit incidence 为 320，最大 torque 为 `41.9275 N·m`，
+final torque 与 actuator force 最大误差为 0。
+
+除 wall-clock duration 外，`ji_baseline_after_ci` 的 summary 和全部 episode
+metric 与修改前 `ji_baseline_v1_clean_acf1c97` 逐项相同。新增无质量 TCP
+site 没有造成 JI 数值回归。
 
 ## 13. 已知限制
 
