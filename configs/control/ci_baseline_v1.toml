@@ -1,0 +1,60 @@
+[model]
+path = "models/panda_torque/scene_torque.xml"
+tcp_site = "ci_tcp"
+
+[simulation]
+control_frequency_hz = 500.0
+substeps = 1
+maximum_duration = 5.0
+output_sampling_frequency_hz = 500.0
+
+[controller]
+# Fixed conservative free-space gains.  The structure follows the simple
+# libfranka 0.21.2 Cartesian-impedance example without inertia shaping.
+translational_stiffness = [120.0, 120.0, 120.0]
+rotational_stiffness = [8.0, 8.0, 8.0]
+translational_damping = [21.9089, 21.9089, 21.9089]
+rotational_damping = [5.6569, 5.6569, 5.6569]
+dynamics_compensation_mode = "gravity_coriolis"
+torque_limits = [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+torque_rate_limits = [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+
+[kinematics]
+jacobian_rank_tolerance = 1.0e-8
+minimum_singular_value = 0.05
+maximum_condition_number = 50.0
+quaternion_convention = "wxyz"
+orientation_error_convention = "world_log_target_times_current_transpose"
+
+[safety]
+joint_limit_margin = 0.02
+joint_velocity_limits = [2.0, 2.0, 2.0, 2.0, 2.5, 2.5, 2.5]
+maximum_tcp_position_error = 0.15
+maximum_tcp_orientation_error = 0.60
+sustained_violation_duration = 0.25
+simulation_instability_acceleration = 1000.0
+workspace_min = [0.20, -0.50, 0.25]
+workspace_max = [0.75, 0.50, 0.90]
+
+[trajectory]
+seed = 20260724
+initial_joint_pose = [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+hold_joint_poses = [
+  [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853],
+  [0.25, -0.35, 0.20, -1.80, 0.10, 1.70, -0.50],
+  [-0.25, 0.25, -0.20, -1.40, -0.15, 1.40, 0.40],
+]
+hold_duration = 2.0
+translation_amplitudes = [0.025, 0.025, 0.025]
+translation_frequency_hz = 0.25
+translation_ramp_duration = 0.5
+translation_duration = 4.0
+orientation_amplitudes = [0.10, 0.10, 0.10]
+orientation_frequency_hz = 0.25
+orientation_ramp_duration = 0.5
+orientation_duration = 4.0
+line_displacement = [0.04, 0.02, 0.03]
+line_duration = 3.0
+circle_radius = 0.025
+circle_plane_axes = [0, 1]
+circle_duration = 4.0
