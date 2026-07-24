@@ -1,0 +1,47 @@
+seed = 20260724
+
+[model]
+path = "models/panda_torque/scene_torque.xml"
+
+[simulation]
+control_frequency_hz = 500.0
+substeps = 1
+maximum_duration = 4.0
+output_sampling_frequency_hz = 500.0
+
+[controller]
+# Conservative MuJoCo gains: lower than the libfranka 0.21.2 Panda example.
+# Damping is approximately 2*sqrt(K); actual values are explicit for auditing.
+stiffness = [80.0, 80.0, 60.0, 60.0, 20.0, 15.0, 10.0]
+damping = [17.8885, 17.8885, 15.4919, 15.4919, 8.9443, 7.7460, 6.3249]
+dynamics_compensation_mode = "gravity_coriolis"
+torque_limits = [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+torque_rate_limits = [1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+
+[safety]
+joint_limit_margin = 0.02
+joint_velocity_limits = [2.0, 2.0, 2.0, 2.0, 2.5, 2.5, 2.5]
+maximum_tracking_error = [0.70, 0.70, 0.70, 0.70, 0.80, 0.80, 0.80]
+sustained_violation_duration = 0.25
+simulation_instability_acceleration = 1000.0
+
+[trajectory]
+initial_pose = [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+hold_poses = [
+  [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853],
+  [0.25, -0.35, 0.20, -1.80, 0.10, 1.70, -0.50],
+  [-0.25, 0.25, -0.20, -1.40, -0.15, 1.40, 0.40],
+]
+zero_torque_duration = 0.8
+compensation_hold_duration = 1.5
+impedance_hold_duration = 2.0
+minimum_jerk_goal = [0.10, -0.10, 0.08, -1.45, 0.06, 1.68, -0.68]
+minimum_jerk_duration = 2.0
+single_joint_amplitudes = [0.08, 0.08, 0.08, 0.06, 0.08, 0.08, 0.10]
+single_joint_frequency_hz = 0.25
+single_joint_duration = 3.0
+sine_ramp_duration = 0.5
+multi_joint_amplitudes = [0.06, 0.05, 0.06, 0.04, 0.06, 0.05, 0.08]
+multi_joint_frequencies_hz = [0.15, 0.17, 0.19, 0.21, 0.23, 0.25, 0.27]
+multi_joint_phases = [0.0, 0.7, 1.4, 2.1, 2.8, 3.5, 4.2]
+multi_joint_duration = 3.0
